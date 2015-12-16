@@ -1,0 +1,488 @@
+EESchema Schematic File Version 2
+LIBS:power
+LIBS:device
+LIBS:transistors
+LIBS:conn
+LIBS:linear
+LIBS:regul
+LIBS:74xx
+LIBS:cmos4000
+LIBS:adc-dac
+LIBS:memory
+LIBS:xilinx
+LIBS:microcontrollers
+LIBS:dsp
+LIBS:microchip
+LIBS:analog_switches
+LIBS:motorola
+LIBS:texas
+LIBS:intel
+LIBS:audio
+LIBS:interface
+LIBS:digital-audio
+LIBS:philips
+LIBS:display
+LIBS:cypress
+LIBS:siliconi
+LIBS:opto
+LIBS:atmel
+LIBS:contrib
+LIBS:valves
+LIBS:ad1955
+LIBS:dcdc
+LIBS:transformer
+LIBS:ir4427
+LIBS:irf9956
+LIBS:usblc6-2
+LIBS:synth-cache
+EELAYER 25 0
+EELAYER END
+$Descr A4 11693 8268
+encoding utf-8
+Sheet 3 4
+Title ""
+Date ""
+Rev ""
+Comp ""
+Comment1 ""
+Comment2 ""
+Comment3 ""
+Comment4 ""
+$EndDescr
+$Comp
+L JACK_TRS_6PINS J?
+U 1 1 5677AE4D
+P 1650 2500
+F 0 "J?" H 1650 2900 50  0000 C CNN
+F 1 "ST-214N" H 1600 2200 50  0000 C CNN
+F 2 "" H 1750 2350 50  0000 C CNN
+F 3 "http://lib.chipdip.ru/820/DOC000820512.pdf" H 1450 2050 50  0000 C CNN
+	1    1650 2500
+	1    0    0    -1  
+$EndComp
+$Comp
+L JACK_TRS_6PINS J?
+U 1 1 5677AEE6
+P 1650 4850
+F 0 "J?" H 1650 5250 50  0000 C CNN
+F 1 "ST-214N" H 1600 4550 50  0000 C CNN
+F 2 "" H 1750 4700 50  0000 C CNN
+F 3 "" H 1750 4700 50  0000 C CNN
+	1    1650 4850
+	1    0    0    -1  
+$EndComp
+$Comp
+L MCP6004 U?
+U 1 1 5677B105
+P 3750 1800
+F 0 "U?" H 3800 2000 50  0000 C CNN
+F 1 "AD824" H 3900 1600 50  0000 C CNN
+F 2 "" H 3700 1900 50  0000 C CNN
+F 3 "" H 3800 2000 50  0000 C CNN
+	1    3750 1800
+	1    0    0    -1  
+$EndComp
+$Comp
+L MCP6004 U?
+U 2 1 5677B146
+P 3750 2950
+F 0 "U?" H 3800 3150 50  0000 C CNN
+F 1 "AD824" H 3900 2750 50  0000 C CNN
+F 2 "" H 3700 3050 50  0000 C CNN
+F 3 "" H 3800 3150 50  0000 C CNN
+	2    3750 2950
+	1    0    0    -1  
+$EndComp
+$Comp
+L MCP6004 U?
+U 3 1 5677B1C5
+P 3750 4150
+F 0 "U?" H 3800 4350 50  0000 C CNN
+F 1 "AD824" H 3900 3950 50  0000 C CNN
+F 2 "" H 3700 4250 50  0000 C CNN
+F 3 "" H 3800 4350 50  0000 C CNN
+	3    3750 4150
+	1    0    0    -1  
+$EndComp
+$Comp
+L MCP6004 U?
+U 4 1 5677B248
+P 3750 5350
+F 0 "U?" H 3800 5550 50  0000 C CNN
+F 1 "AD824" H 3900 5150 50  0000 C CNN
+F 2 "" H 3700 5450 50  0000 C CNN
+F 3 "" H 3800 5550 50  0000 C CNN
+	4    3750 5350
+	1    0    0    -1  
+$EndComp
+$Comp
+L CP1 C?
+U 1 1 5677B391
+P 2700 1900
+F 0 "C?" H 2725 2000 50  0000 L CNN
+F 1 "10.0" H 2725 1800 50  0000 L CNN
+F 2 "" H 2700 1900 50  0000 C CNN
+F 3 "" H 2700 1900 50  0000 C CNN
+	1    2700 1900
+	0    -1   -1   0   
+$EndComp
+$Comp
+L R_Small R?
+U 1 1 5677B458
+P 3150 1900
+F 0 "R?" H 3180 1920 50  0000 L CNN
+F 1 "1K" H 3180 1860 50  0000 L CNN
+F 2 "" H 3150 1900 50  0000 C CNN
+F 3 "" H 3150 1900 50  0000 C CNN
+	1    3150 1900
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	3450 1900 3250 1900
+Wire Wire Line
+	3050 1900 2850 1900
+Wire Wire Line
+	2350 1900 2550 1900
+$Comp
+L R_Small R?
+U 1 1 5677B594
+P 3850 1200
+F 0 "R?" H 3900 1250 50  0000 L CNN
+F 1 "100K" H 3900 1150 50  0000 L CNN
+F 2 "" H 3850 1200 50  0000 C CNN
+F 3 "" H 3850 1200 50  0000 C CNN
+	1    3850 1200
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	4050 1800 4050 1200
+Wire Wire Line
+	4050 1200 3950 1200
+Wire Wire Line
+	3750 1200 3400 1200
+Wire Wire Line
+	3400 1200 3400 1700
+Wire Wire Line
+	3400 1700 3450 1700
+Wire Wire Line
+	4050 1800 4650 1800
+Connection ~ 4050 1800
+$Comp
+L GNDA #PWR?
+U 1 1 5677B8F7
+P 3650 2100
+F 0 "#PWR?" H 3650 1850 50  0001 C CNN
+F 1 "GNDA" H 3650 1950 39  0000 C CNN
+F 2 "" H 3650 2100 50  0000 C CNN
+F 3 "" H 3650 2100 50  0000 C CNN
+	1    3650 2100
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	3650 900  3650 1000
+Wire Wire Line
+	3650 1000 3650 1500
+Text Label 3650 900  0    60   ~ 0
++3V3A_CPU
+$Comp
+L CP1 C?
+U 1 1 5677BFEC
+P 2700 3050
+F 0 "C?" H 2725 3150 50  0000 L CNN
+F 1 "10.0" H 2725 2950 50  0000 L CNN
+F 2 "" H 2700 3050 50  0000 C CNN
+F 3 "" H 2700 3050 50  0000 C CNN
+	1    2700 3050
+	0    -1   -1   0   
+$EndComp
+$Comp
+L R_Small R?
+U 1 1 5677BFF2
+P 3150 3050
+F 0 "R?" H 3180 3070 50  0000 L CNN
+F 1 "1K" H 3180 3010 50  0000 L CNN
+F 2 "" H 3150 3050 50  0000 C CNN
+F 3 "" H 3150 3050 50  0000 C CNN
+	1    3150 3050
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	3450 3050 3250 3050
+Wire Wire Line
+	3050 3050 2850 3050
+Wire Wire Line
+	2350 3050 2550 3050
+$Comp
+L R_Small R?
+U 1 1 5677BFFB
+P 3800 2550
+F 0 "R?" H 3850 2600 50  0000 L CNN
+F 1 "100K" H 3850 2500 50  0000 L CNN
+F 2 "" H 3800 2550 50  0000 C CNN
+F 3 "" H 3800 2550 50  0000 C CNN
+	1    3800 2550
+	0    1    -1   0   
+$EndComp
+Wire Wire Line
+	4050 2950 4050 2550
+Wire Wire Line
+	4050 2550 3900 2550
+Wire Wire Line
+	3700 2550 3400 2550
+Wire Wire Line
+	3400 2550 3400 2850
+Wire Wire Line
+	3400 2850 3450 2850
+Wire Wire Line
+	4050 2950 4650 2950
+Connection ~ 4050 2950
+$Comp
+L GNDA #PWR?
+U 1 1 5677C008
+P 3650 3250
+F 0 "#PWR?" H 3650 3000 50  0001 C CNN
+F 1 "GNDA" H 3650 3100 39  0000 C CNN
+F 2 "" H 3650 3250 50  0000 C CNN
+F 3 "" H 3650 3250 50  0000 C CNN
+	1    3650 3250
+	1    0    0    -1  
+$EndComp
+$Comp
+L CP1 C?
+U 1 1 5677C595
+P 2700 4250
+F 0 "C?" H 2725 4350 50  0000 L CNN
+F 1 "10.0" H 2725 4150 50  0000 L CNN
+F 2 "" H 2700 4250 50  0000 C CNN
+F 3 "" H 2700 4250 50  0000 C CNN
+	1    2700 4250
+	0    -1   -1   0   
+$EndComp
+$Comp
+L R_Small R?
+U 1 1 5677C59B
+P 3150 4250
+F 0 "R?" H 3180 4270 50  0000 L CNN
+F 1 "1K" H 3180 4210 50  0000 L CNN
+F 2 "" H 3150 4250 50  0000 C CNN
+F 3 "" H 3150 4250 50  0000 C CNN
+	1    3150 4250
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	3450 4250 3250 4250
+Wire Wire Line
+	3050 4250 2850 4250
+Wire Wire Line
+	2550 4250 2400 4250
+$Comp
+L R_Small R?
+U 1 1 5677C5A4
+P 3800 3750
+F 0 "R?" H 3850 3800 50  0000 L CNN
+F 1 "100K" H 3850 3700 50  0000 L CNN
+F 2 "" H 3800 3750 50  0000 C CNN
+F 3 "" H 3800 3750 50  0000 C CNN
+	1    3800 3750
+	0    1    -1   0   
+$EndComp
+Wire Wire Line
+	4050 4150 4050 3750
+Wire Wire Line
+	4050 3750 3900 3750
+Wire Wire Line
+	3700 3750 3400 3750
+Wire Wire Line
+	3400 3750 3400 4050
+Wire Wire Line
+	3400 4050 3450 4050
+Wire Wire Line
+	4050 4150 4650 4150
+Connection ~ 4050 4150
+$Comp
+L GNDA #PWR?
+U 1 1 5677C5B1
+P 3650 4450
+F 0 "#PWR?" H 3650 4200 50  0001 C CNN
+F 1 "GNDA" H 3650 4300 39  0000 C CNN
+F 2 "" H 3650 4450 50  0000 C CNN
+F 3 "" H 3650 4450 50  0000 C CNN
+	1    3650 4450
+	1    0    0    -1  
+$EndComp
+$Comp
+L CP1 C?
+U 1 1 5677C832
+P 2700 5450
+F 0 "C?" H 2725 5550 50  0000 L CNN
+F 1 "10.0" H 2725 5350 50  0000 L CNN
+F 2 "" H 2700 5450 50  0000 C CNN
+F 3 "" H 2700 5450 50  0000 C CNN
+	1    2700 5450
+	0    -1   -1   0   
+$EndComp
+$Comp
+L R_Small R?
+U 1 1 5677C838
+P 3150 5450
+F 0 "R?" H 3180 5470 50  0000 L CNN
+F 1 "1K" H 3180 5410 50  0000 L CNN
+F 2 "" H 3150 5450 50  0000 C CNN
+F 3 "" H 3150 5450 50  0000 C CNN
+	1    3150 5450
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	3450 5450 3250 5450
+Wire Wire Line
+	3050 5450 2850 5450
+Wire Wire Line
+	2550 5450 2400 5450
+$Comp
+L R_Small R?
+U 1 1 5677C841
+P 3800 4950
+F 0 "R?" H 3850 5000 50  0000 L CNN
+F 1 "100K" H 3850 4900 50  0000 L CNN
+F 2 "" H 3800 4950 50  0000 C CNN
+F 3 "" H 3800 4950 50  0000 C CNN
+	1    3800 4950
+	0    1    -1   0   
+$EndComp
+Wire Wire Line
+	4050 5350 4050 4950
+Wire Wire Line
+	4050 4950 3900 4950
+Wire Wire Line
+	3700 4950 3400 4950
+Wire Wire Line
+	3400 4950 3400 5250
+Wire Wire Line
+	3400 5250 3450 5250
+Wire Wire Line
+	4050 5350 4650 5350
+Connection ~ 4050 5350
+$Comp
+L GNDA #PWR?
+U 1 1 5677C84E
+P 3650 5650
+F 0 "#PWR?" H 3650 5400 50  0001 C CNN
+F 1 "GNDA" H 3650 5500 39  0000 C CNN
+F 2 "" H 3650 5650 50  0000 C CNN
+F 3 "" H 3650 5650 50  0000 C CNN
+	1    3650 5650
+	1    0    0    -1  
+$EndComp
+$Comp
+L CP1 C?
+U 1 1 5677D086
+P 4750 1250
+F 0 "C?" H 4775 1350 50  0000 L CNN
+F 1 "10.0" H 4775 1150 50  0000 L CNN
+F 2 "" H 4750 1250 50  0000 C CNN
+F 3 "" H 4750 1250 50  0000 C CNN
+	1    4750 1250
+	-1   0    0    1   
+$EndComp
+$Comp
+L C_Small C?
+U 1 1 5677D24B
+P 5050 1250
+F 0 "C?" H 5060 1320 50  0000 L CNN
+F 1 "C_Small" H 5060 1170 50  0000 L CNN
+F 2 "" H 5050 1250 50  0000 C CNN
+F 3 "" H 5050 1250 50  0000 C CNN
+	1    5050 1250
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	4750 1100 4900 1100
+Wire Wire Line
+	4900 1100 5050 1100
+Wire Wire Line
+	5050 1100 5050 1150
+Wire Wire Line
+	4750 1400 4900 1400
+Wire Wire Line
+	4900 1400 5050 1400
+Wire Wire Line
+	5050 1400 5050 1350
+Wire Wire Line
+	4900 1400 4900 1450
+Connection ~ 4900 1400
+$Comp
+L GNDA #PWR?
+U 1 1 5677D37F
+P 4900 1450
+F 0 "#PWR?" H 4900 1200 50  0001 C CNN
+F 1 "GNDA" H 4900 1300 39  0000 C CNN
+F 2 "" H 4900 1450 50  0000 C CNN
+F 3 "" H 4900 1450 50  0000 C CNN
+	1    4900 1450
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	4900 1100 4900 1000
+Wire Wire Line
+	4900 1000 3650 1000
+Connection ~ 3650 1000
+Connection ~ 4900 1100
+Wire Wire Line
+	2050 2300 2200 2300
+$Comp
+L GNDA #PWR?
+U 1 1 5677DCC4
+P 2200 2300
+F 0 "#PWR?" H 2200 2050 50  0001 C CNN
+F 1 "GNDA" H 2200 2150 39  0000 C CNN
+F 2 "" H 2200 2300 50  0000 C CNN
+F 3 "" H 2200 2300 50  0000 C CNN
+	1    2200 2300
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	2050 2700 2350 2700
+Wire Wire Line
+	2050 2500 2350 2500
+Wire Wire Line
+	2350 2500 2350 1900
+Wire Wire Line
+	2350 2700 2350 3050
+Text Label 4650 1800 2    60   ~ 0
+AUDIO1_L
+Text Label 4650 2950 2    60   ~ 0
+AUDIO1_R
+Text Notes 600  3100 0    60   ~ 0
+This symbol is incorrect!
+Wire Wire Line
+	2050 4650 2250 4650
+$Comp
+L GNDA #PWR?
+U 1 1 5677F43E
+P 2250 4650
+F 0 "#PWR?" H 2250 4400 50  0001 C CNN
+F 1 "GNDA" H 2250 4500 39  0000 C CNN
+F 2 "" H 2250 4650 50  0000 C CNN
+F 3 "" H 2250 4650 50  0000 C CNN
+	1    2250 4650
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	2050 4850 2400 4850
+Wire Wire Line
+	2400 4850 2400 4250
+Wire Wire Line
+	2050 5050 2400 5050
+Wire Wire Line
+	2400 5050 2400 5450
+Text Label 4650 4150 2    60   ~ 0
+AUDIO2_L
+Text Label 4650 5350 2    60   ~ 0
+AUDIO2_R
+Text Notes 1650 3650 0    60   ~ 0
+Investigate input impedance!
+Text Notes 4850 3600 0    60   ~ 0
+implement 1st order lowpass filters here
+Text Notes 1650 3750 0    60   ~ 0
+http://3.bp.blogspot.com/-bP_h_C9MMF0/UXzus0086cI/AAAAAAAACZU/TzdCaGjU_u4/s1600/Op-Amp+audio+mixer+Circuit.gif
+$EndSCHEMATC

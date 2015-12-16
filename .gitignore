@@ -41,3 +41,11 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
+
+cubemx
+CubeMX2Makefile
+generated
+ltspice
+*.bak
+kicad/plots
+kicad/_saved_synth.sch
