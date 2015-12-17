@@ -1,4 +1,4 @@
-update=12/11/2015 11:59:51 PM
+update=12/16/2015 11:27:59 PM
 version=1
 last_client=kicad
 [pcbnew]
@@ -60,3 +60,4 @@ LibName28=contrib
 LibName29=valves
 LibName30=C:/Program Files/KiCad/share/kicad/library/stm32
 LibName31=ad1955
+LibName32=lm4864
