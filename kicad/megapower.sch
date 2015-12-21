@@ -828,8 +828,6 @@ Wire Wire Line
 	1400 1900 1400 2000
 Wire Wire Line
 	1850 3450 1850 3800
-Text Label 600  850  0    60   ~ 0
-+5V_UNREG
 $Comp
 L C_Small C218
 U 1 1 5670A465
@@ -938,7 +936,7 @@ U 1 1 56736730
 P 1650 950
 F 0 "Q201" H 1450 1250 50  0000 L CNN
 F 1 "FDS6675" H 1450 700 50  0000 L CNN
-F 2 "Housings_SOIC:SOIC-8_3.9x4.9mm_Pitch1.27mm" H 1650 1150 50  0000 C CIN
+F 2 "Housings_SOIC:SOIC-8_3.9x4.9mm_Pitch1.27mm" H 1650 1150 50  0001 C CIN
 F 3 "" V 1650 950 50  0000 L CNN
 	1    1650 950 
 	-1   0    0    -1  
@@ -964,7 +962,7 @@ $EndComp
 Wire Wire Line
 	1950 1100 1950 1150
 Wire Wire Line
-	600  850  1350 850 
+	950  850  1350 850 
 $Comp
 L CP1_Small C201
 U 1 1 56737DBA
@@ -1072,10 +1070,7 @@ Wire Wire Line
 Wire Wire Line
 	6550 750  6550 650 
 Wire Wire Line
-	5950 650  6900 650 
-Wire Wire Line
 	5950 950  5950 650 
-Connection ~ 6550 650 
 Wire Wire Line
 	6550 1150 6550 1250
 Wire Wire Line
@@ -1226,4 +1221,12 @@ F 3 "" H 3750 7150 50  0000 C CNN
 	1    3750 7150
 	1    0    0    -1  
 $EndComp
+Wire Wire Line
+	5950 650  6550 650 
+Text GLabel 7100 650  2    60   Input ~ 0
++3V3D_CPU
+Wire Wire Line
+	6900 650  7100 650 
+Text HLabel 950  850  0    60   Input ~ 0
++5VJACK
 $EndSCHEMATC
