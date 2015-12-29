@@ -5,6 +5,8 @@
 #include <libopencm3/stm32/usart.h>
 #include <libopencm3/cm3/nvic.h>
 
+#include "usrat.h"
+
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
@@ -30,7 +32,7 @@ static int usart_Configured = 0;
 
 volatile int USARTD = 0;
 
-void Debug_UART_Setup() 
+void Debug_UART_Setup(void) 
 {
     tx_head = rx_head = 0;
     tx_tail = rx_tail = 0;
@@ -66,28 +68,28 @@ void Debug_UART_Setup()
     usart_Configured = 1;
 }
 
-static inline uint8_t tx_count()
+static inline uint8_t tx_count(void)
 {
     USARTD = 10;
 
     return (tx_head >= tx_tail) ? tx_head - tx_tail : tx_head + BUFFER_SIZE - tx_tail;
 }
 
-static inline uint8_t rx_count()
+static inline uint8_t rx_count(void)
 {
     USARTD = 33;
     return (rx_head >= rx_tail) ? rx_head - rx_tail : rx_head + BUFFER_SIZE - rx_tail;
 }
 
-void xflush() {
+void xflush(void) {
     while(tx_count() != 0);
 }
 
-int xavail() {
+int xavail(void) {
     return rx_count();
 }
 
-int xgetchar()
+int xgetchar(void)
 {
     if (xavail()) {
         if (++rx_tail == BUFFER_SIZE) {
@@ -99,7 +101,7 @@ int xgetchar()
     }
 }
 
-void emit()
+static void emit(void)
 {
     do {
         if (tx_head != tx_tail) {
