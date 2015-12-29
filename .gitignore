@@ -49,3 +49,9 @@ ltspice
 *.bak
 kicad/plots
 kicad/_saved_synth.sch
+
+src/fannyadams/build/*
+
+src/fannyadams/fannyadams.elf
+
+src/fannyadams/fannyadams.map
