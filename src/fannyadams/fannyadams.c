@@ -5,6 +5,7 @@
 
 #include "usrat.h"
 #include "xprintf.h"
+#include "adc3.h"
 
 
 static void clock_setup(void)
@@ -30,12 +31,16 @@ int main(void)
 
 
     xprintf("LES SHADOKS POMPAIENT\n\r");
+
+    ADC3_Setup();
+    ADC3_Start();
+    
     while (1) {
         __asm__("NOP");
 
         if (xavail()) {
             int c = xgetchar();
-            xprintf("Pressed: %c [%02x]\n\r", c);
+            xprintf("Pressed: %c [%02x] ADC3: %d %d %d     \n\r", c, c, ADC3_BUFFER[0], ADC3_BUFFER[1], ADC3_BUFFER[2]);
         }
     }
 
