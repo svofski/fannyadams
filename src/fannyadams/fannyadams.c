@@ -6,6 +6,7 @@
 #include "usrat.h"
 #include "xprintf.h"
 #include "adc3.h"
+#include "power.h"
 
 
 static void clock_setup(void)
@@ -29,18 +30,29 @@ int main(void)
     gpio_setup();
     Debug_UART_Setup();
 
+    int power = 7;
+
 
     xprintf("LES SHADOKS POMPAIENT\n\r");
 
     ADC3_Setup();
     ADC3_Start();
-    
+
+    Power_Setup();
+    Power_Start();
+
     while (1) {
         __asm__("NOP");
 
         if (xavail()) {
             int c = xgetchar();
             xprintf("Pressed: %c [%02x] ADC3: %d %d %d     \n\r", c, c, ADC3_BUFFER[0], ADC3_BUFFER[1], ADC3_BUFFER[2]);
+            switch (c) {
+                case 'q':   Power_Scale(power -= 1); break;
+                case 'w':   Power_Scale(power += 1); break;
+                case 'e':   Power_Stop(); break;
+                case 'r':   Power_Start(); break;
+            }
         }
     }
 
