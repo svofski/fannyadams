@@ -9,56 +9,54 @@
 
 #include "power.h"
 
-#define PWM_PUSH_Pin GPIO_PIN_10
-#define PWM_PUSH_GPIO_Port GPIOA
-
-#define PWM_PULL_Pin GPIO_PIN_1
-#define PWM_PULL_GPIO_Port GPIOB
+// PUSH is A.10
+// PULL is B.1
 
 #define MIN_DEADTIME (0000 + 32)
 
 static const uint8_t power_table[8] = {
-	0300 + 0,
+	0300 + 0, 		// minimal power: ~ 50% duty
 	0200 + 48,
 	0200 + 32,
 	0200 + 16,
 	0200 + 0,
 	0100 + 32,
 	0100 + 0,
-	MIN_DEADTIME};  // 7
+	MIN_DEADTIME};  // maximum power
 
 static volatile uint8_t dead_set = MIN_DEADTIME;
 
 
 #define PWM_FREQ	100000ul
-#define PERIOD (168000000ul/PWM_FREQ/2 - 1)
-#define HALFPERIOD (PERIOD/2)
+#define PERIOD 		(168000000ul/PWM_FREQ/2 - 1)
+#define HALFPERIOD 	(PERIOD/2)
 
 static void Reconfigure(void) {
+	// no prescaler (168MHz clock)
 	timer_set_mode(TIM1, TIM_CR1_CKD_CK_INT, TIM_CR1_CMS_CENTER_1, TIM_CR1_DIR_UP);
-	timer_continuous_mode(TIM1);
+	timer_continuous_mode(TIM1); 						// keeps on running
 
-	timer_disable_break(TIM1);
+	timer_disable_break(TIM1); 							// break function not used
 
-	timer_set_oc_value(TIM1, TIM_OC1, 0);
-	timer_set_oc_value(TIM1, TIM_OC3, HALFPERIOD);
-	timer_set_period(TIM1, PERIOD);
- 	timer_set_deadtime(TIM1, dead_set);
+	timer_set_oc_mode(TIM1, TIM_OC1, TIM_OCM_FROZEN); 	// OC1 used for timing base
+	timer_set_oc_mode(TIM1, TIM_OC3, TIM_OCM_PWM2); 	// OC3 is the PWM channel
 
-	timer_set_oc_mode(TIM1, TIM_OC1, TIM_OCM_FROZEN);
-	timer_set_oc_mode(TIM1, TIM_OC3, TIM_OCM_PWM2);
+	timer_set_oc_value(TIM1, TIM_OC1, 0); 				// OC1 is frozen
+	timer_set_oc_value(TIM1, TIM_OC3, HALFPERIOD); 		// OC3 is the main pwm, always 50% for simmetry
+	timer_set_period(TIM1, PERIOD); 					// sets the frequency
+ 	timer_set_deadtime(TIM1, dead_set); 				// dead-time used for protection and duty cycle
 
-	timer_set_oc_polarity_high(TIM1, TIM_OC3);
-	timer_set_oc_idle_state_unset(TIM1, TIM_OC3);
+	timer_set_oc_polarity_high(TIM1, TIM_OC3); 			// _|     |_________  high when active
+	timer_set_oc_idle_state_unset(TIM1, TIM_OC3); 		// ____ zero when MOE = 0 ___
 
-	timer_set_oc_polarity_high(TIM1, TIM_OC3N);
-	timer_set_oc_idle_state_unset(TIM1, TIM_OC3N);	
+	timer_set_oc_polarity_high(TIM1, TIM_OC3N);         // _________|     |__ high when active
+	timer_set_oc_idle_state_unset(TIM1, TIM_OC3N);		// ____ zero when MOE = 0 ___
 	
-	timer_enable_oc_output(TIM1, TIM_OC3);
-	timer_enable_oc_output(TIM1, TIM_OC3N);
+	timer_enable_oc_output(TIM1, TIM_OC3); 				// enable OC3 
+	timer_enable_oc_output(TIM1, TIM_OC3N);				// and complementary OC3N
 
-	// outputs will be enabled on the next update event
-	timer_enable_break_automatic_output(TIM1);
+	timer_enable_break_automatic_output(TIM1);			// AOE: outputs are disabled but will be enabled 
+														// on the next update event
 }
 
 void Power_Setup(void) {
@@ -85,24 +83,17 @@ void Power_Setup(void) {
 }
 
 void Power_Start(void) {
-	//timer_enable_break_main_output(TIM1); 
-	timer_enable_counter(TIM1);	
+	//timer_enable_break_main_output(TIM1); // not necessary, because:
+	timer_enable_counter(TIM1);	 			// AOE setting will set MOE on first update event
 }
 
 void Power_Stop(void) {
-	timer_disable_break_main_output(TIM1); 
-	timer_disable_counter(TIM1);
+	timer_disable_break_main_output(TIM1); 	// force idle state on outputs (unset, low)
+	timer_disable_counter(TIM1); 			// stop
 }
 
 void Power_Scale(int factor) {
-	uint8_t f;
-	if (factor < 0) {
-		f = 0;
-	} else if (factor > 7) {
-		f = 7;
-	} else {
-		f = (uint8_t) factor;
-	}
+	uint8_t f = factor < 0 ? 0 : factor > 7 ? 7 : (uint8_t) factor;
 	dead_set = power_table[f];
 	xprintf("Power_Scale(%d) deadtime=%d\n\r", factor, dead_set);
 	timer_clear_flag(TIM1, TIM_SR_UIF);
@@ -111,9 +102,9 @@ void Power_Scale(int factor) {
 
 void tim1_up_tim10_isr(void) {
 	timer_clear_flag(TIM1, TIM_SR_UIF); 	// clear interrupt flag
-	timer_disable_break_main_output(TIM1); 
+	timer_disable_break_main_output(TIM1);  // set outputs to idle mode (both channels low)
 	timer_reset(TIM1); 						// completely reset the timer, otherwise deadtime cannot be set
 	Reconfigure(); 							// set up everything
-	timer_enable_break_main_output(TIM1);
+	timer_enable_break_main_output(TIM1); 	// force master output enable (MOE) without waiting for auto
 	timer_enable_counter(TIM1); 			// start the timer again
 }
