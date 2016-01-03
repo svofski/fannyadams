@@ -37,6 +37,10 @@ void Debug_UART_Setup(void)
     tx_head = rx_head = 0;
     tx_tail = rx_tail = 0;
 
+    rcc_periph_clock_enable(RCC_GPIOB);
+    rcc_periph_clock_enable(RCC_GPIOA);
+    rcc_periph_clock_enable(RCC_USART1);
+
     /* Enable the USART1 interrupt. */
     nvic_enable_irq(NVIC_USART1_IRQ);
 
