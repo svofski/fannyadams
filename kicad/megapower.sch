@@ -103,8 +103,8 @@ F 3 "" H 2800 1650 50  0000 C CNN
 	1    2800 1650
 	0    1    1    0   
 $EndComp
-Text Notes 3100 1300 0    39   ~ 0
-Bifilar primary windings
+Text Notes 2850 1250 0    39   ~ 0
+Bifilar primary windings: 8+8\nSecondary: 34+34 for -15/+15\n17 for +7.5
 $Comp
 L D_Small D202
 U 1 1 566E6D1D
