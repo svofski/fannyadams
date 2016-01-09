@@ -14,12 +14,23 @@
 
 #include "usbcmp.h"
 
+volatile uint32_t lr = 0x80007fff;
+void test() {
+    uint16_t left = lr >> 16;
+    uint16_t right = lr & 0177777;
+    int32_t il = (int32_t) ((uint32_t)left << 16);
+    int32_t ir = (int32_t) ((uint32_t)right << 16);
+    xprintf("il=%d(%x) ir=%d(%x)\r\n", il, il, ir, ir);
+}
+
 int main(void)
 {
     Clock_Setup();
     Debug_UART_Setup();
 
     xprintf("LES SHADOKS POMPAIENT\n\r");
+
+    test();
 
     Event_Setup();
     ADC3_Setup();
@@ -87,7 +98,7 @@ int main(void)
                         case DEBOUNCE_I2S:
                             xprintf("I2S Start\r\n");
                             I2S_Setup();
-                            I2S_Start();
+                            //I2S_Start();
                             break;
                     }
                     break;

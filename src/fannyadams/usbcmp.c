@@ -10,6 +10,7 @@
 #include "usbcmp.h"
 #include "systick.h"
 #include "xprintf.h"
+#include "i2s.h"
 
 #define USB_EP0 						0x00
 
@@ -44,7 +45,6 @@ static const char * usb_strings[] = {
 };
 
 #ifdef WITH_CDCACM
-	#define NUM_INTERFACES 					4
 	#define CDCACM_COMM_INTERFACE			0
 	#define CDCACM_DATA_INTERFACE			1
 	#define AUDIO_CONTROL_IFACE 			2
@@ -60,8 +60,6 @@ static const char * usb_strings[] = {
 	#define AUDIO_CONTROL_IFACE 			(AUDIO_IFACE_START)
 	#define AUDIO_SINK_IFACE 				(AUDIO_CONTROL_IFACE+1)
 	#define AUDIO_SOURCE_IFACE 				(AUDIO_SINK_IFACE+1)
-
-	#define NUM_INTERFACES 					(AUDIO_SOURCE_IFACE + 1)
 
 	#define AUDIO_SINK_EP                   (AUDIO_EP_START)
 	#define AUDIO_SOURCE_EP 				(0200 | (AUDIO_SINK_EP + 1))
@@ -543,7 +541,7 @@ static const struct usb_config_descriptor config = {
 	.bLength = USB_DT_CONFIGURATION_SIZE,
 	.bDescriptorType = USB_DT_CONFIGURATION,
 	.wTotalLength = 0, 			// Length of the total configuration block, including this descriptor, in bytes.
-	.bNumInterfaces = sizeof(ifaces)/sizeof(ifaces[0]),
+	.bNumInterfaces = sizeof(ifaces)/sizeof(ifaces[0]) - 1, // disable recording interface
 	.bConfigurationValue = 1, 	
 	.iConfiguration = 0,
 	.bmAttributes = USB_CONFIG_ATTR_DEFAULT,
@@ -691,8 +689,22 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 	(void)ep;
 	if (altsetting_sink) {
 		int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_sink_buffer, AUDIO_SINK_PACKET_SIZE);
-		//xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
-		xputchar('<');
+		int32_t* i2s_buf = I2S_GetBuffer();
+		if (len == 0) {
+			memset(i2s_buf, 0, AUDIO_SINK_PACKET_SIZE*2);
+		} else {
+			//xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
+			xputchar('<');
+			for (int i = 0; i < len/4; i++) {
+				// ps = 100: 25 elements of int32
+				uint32_t lr = ((int32_t*)audio_sink_buffer)[i];
+				uint16_t left = lr >> 16;
+				uint16_t right = lr & 0177777;
+				i2s_buf[i*2] = (int32_t) ((uint32_t)left << 16);
+				i2s_buf[i*2+1] = (int32_t) ((uint32_t)right << 16);
+			}
+			I2S_Start();
+		}
 	}
 }
 
@@ -807,4 +819,5 @@ void USBCMP_Setup(void)
 	fill_buffer();
 
 	xprintf("sink iface=%d source=%d\r\n", AUDIO_SINK_IFACE, AUDIO_SOURCE_IFACE);
+	xprintf("Packet length=%d samples; audio buffer length=%d samples\r\n", AUDIO_SINK_PACKET_SIZE/2, AUDIO_BUFFER_SIZE);
 }

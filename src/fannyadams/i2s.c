@@ -118,6 +118,10 @@ void I2S_Setup(void) {
     //SPI_I2SCFGR(SPI2) |= SPI_I2SCFGR_I2SE;      // Enable I2S2
 }
 
+int32_t* I2S_GetBuffer() {
+    return buffer;
+}
+
 void I2S_Start() {
     SPI_I2SCFGR(SPI2) |= SPI_I2SCFGR_I2SE;      // Enable I2S2   
 }
