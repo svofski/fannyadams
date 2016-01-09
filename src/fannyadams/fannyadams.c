@@ -10,6 +10,9 @@
 #include "systick.h"
 #include "event.h"
 #include "gpio.h"
+#include "i2s.h"
+
+#include "usbcmp.h"
 
 int main(void)
 {
@@ -25,11 +28,17 @@ int main(void)
     Power_Setup();
     GPIO_Setup();
 
+    I2S_Setup();
+    I2S_InitBuffer();
+
+    USBCMP_Setup();
+
     // Turn on power if any of the plugs is inserted
     Clock_Debounce(DEBOUNCE_POWER, 150);
     Clock_Debounce(DEBOUNCE_DCDC, 300);
 
     while (1) {
+        USBCMP_Poll();
         if (xavail()) {
             int c = xgetchar();
             switch (c) {
@@ -58,8 +67,10 @@ int main(void)
                             if (GPIO_IsOutputPlugged()) {
                                 xprintf("Jack plugged, power on\r\n");
                                 Power_Start();
+                                Clock_Debounce(DEBOUNCE_I2S, 250);
                             } else {
-                                xprintf("Jacks unplugged, power off\r\n");
+                                xprintf("Jacks unplugged, I2S Shutdown, Power off\r\n");
+                                I2S_Shutdown();
                                 Power_Stop();
                             }
                             break;
@@ -67,10 +78,15 @@ int main(void)
                             {
                             int raw = ADC3_BUFFER[0];
                             int scaled = raw * 78;
-                            xprintf("DC-DC: voltage=%d.%d %d.%d\r\n", raw/1241, (raw % 1241)/124,
-                                scaled/12410, (scaled % 12410)/1240);
+                            //xprintf("DC-DC: voltage=%d.%d %d.%d\r\n", raw/1241, (raw % 1241)/124,
+                            //    scaled/12410, (scaled % 12410)/1240);
                             Clock_Debounce(DEBOUNCE_DCDC, 1000);
                             }
+                            break;
+                        case DEBOUNCE_I2S:
+                            xprintf("I2S Start\r\n");
+                            I2S_Setup();
+                            I2S_Start();
                             break;
                     }
                     break;

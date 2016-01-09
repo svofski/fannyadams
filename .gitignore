@@ -55,3 +55,7 @@ src/fannyadams/build/*
 src/fannyadams/fannyadams.elf
 
 src/fannyadams/fannyadams.map
+
+libopencm3-sub/
+
+*.x

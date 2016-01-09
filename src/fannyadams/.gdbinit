@@ -8,3 +8,4 @@ set arm force-mode thumb
 define hook-quit
     set confirm off
 end
+set print elements 1024
