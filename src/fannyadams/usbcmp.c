@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/usb/usbd.h>
@@ -7,6 +8,7 @@
 #include <libopencm3/cm3/scb.h>
 
 #include "usbcmp.h"
+#include "systick.h"
 #include "xprintf.h"
 
 #define USB_EP0 						0x00
@@ -65,8 +67,14 @@ static const char * usb_strings[] = {
 	#define AUDIO_SOURCE_EP 				(0200 | (AUDIO_SINK_EP + 1))
 #endif
 
-// OSX wants packet size to be no less than 196
-#define AUDIO_OUT_PACKET_SIZE 			200
+// Windows appears to have some slack regarding packet size, OSX is extremely touchy
+#define AUDIO_SINK_PACKET_SIZE 				(USB_AUDIO_PACKET_SIZE(48000,2,16) + 4)
+#define AUDIO_SOURCE_PACKET_SIZE			(USB_AUDIO_PACKET_SIZE(48000,1,16) + 4)
+
+static uint16_t sample_ofs;
+static uint8_t sample[480];
+
+static uint8_t audio_out_buf[AUDIO_SOURCE_PACKET_SIZE];
 
 // Entity IDs for audio sink terminals: input, feature control, output
 #define AUDIO_TERMINAL_INPUT 			1 	// USB Stream
@@ -78,7 +86,7 @@ static const char * usb_strings[] = {
 #define AUDIO_SOURCE_VOLUME_CONTROL		5
 #define AUDIO_SOURCE_TERMINAL_OUTPUT 	6 	// USB Stream
 
-static uint8_t audio_buffer[AUDIO_OUT_PACKET_SIZE];
+static uint8_t audio_sink_buffer[AUDIO_SINK_PACKET_SIZE];
 
 #ifdef WITH_CDCACM
 static char cdc_buf[64];
@@ -414,7 +422,7 @@ static const struct usb_endpoint_descriptor audio_sink_endp[] = {{
 	.bDescriptorType = USB_DT_ENDPOINT,
 	.bEndpointAddress = AUDIO_SINK_EP,
 	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC,
-	.wMaxPacketSize = AUDIO_OUT_PACKET_SIZE,
+	.wMaxPacketSize = AUDIO_SINK_PACKET_SIZE,
 	.bInterval = 1,
 	.bRefresh = 0,
 	.bSynchAddress = 0,
@@ -428,7 +436,7 @@ static const struct usb_endpoint_descriptor audio_source_endp[] = {{
 	.bDescriptorType = USB_DT_ENDPOINT,
 	.bEndpointAddress = AUDIO_SOURCE_EP,
 	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC,
-	.wMaxPacketSize = AUDIO_OUT_PACKET_SIZE,
+	.wMaxPacketSize = AUDIO_SOURCE_PACKET_SIZE,
 	.bInterval = 1,
 	.bRefresh = 0,
 	.bSynchAddress = 0,
@@ -681,25 +689,55 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	(void)ep;
-	int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);
-	xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
+	if (altsetting_sink) {
+		int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_sink_buffer, AUDIO_SINK_PACKET_SIZE);
+		//xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
+		xputchar('<');
+	}
 }
+
+#define MIN(x,y) ((x)<(y)?(x):(y))
 
 static void audio_data_tx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	(void)ep;
-	xprintf("### TX\n\r");
-//	int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);
-//	xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
+	if (altsetting_source) {
+		// shift out current packet: this copies audio_out_buf into EP fifo
+		uint16_t len = usbd_ep_write_packet(usbd_dev, AUDIO_SOURCE_EP, audio_out_buf, AUDIO_SOURCE_PACKET_SIZE);
+
+		// prepare the new one
+		size_t avail = sizeof(audio_out_buf);
+		size_t tail = 0;
+		for(;avail > 0;) {
+			if (sample_ofs + avail < sizeof(sample)) {
+				memcpy(audio_out_buf + tail, sample + sample_ofs, avail);
+				sample_ofs += avail;
+				avail = 0;
+			} else {
+				tail = sizeof(sample) - sample_ofs;
+				memcpy(audio_out_buf, sample + sample_ofs, tail);
+				sample_ofs = 0;
+				avail -= tail;
+			}
+		}
+		xputchar('>');
+		//xprintf(">%d o=%d;", len, sample_ofs);
+	}
 }
 
 
 static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t value) {
 	xprintf("set_altsetting_cb: iface=%d value=%d\r\n", index, value);
-	// if (value == 1) {
-	// 	int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);		
-	// 	xprintf("altsetting/read start: len=%d\n\r", len);
-	// }
+	if (index == AUDIO_SOURCE_IFACE) {
+		if (value == 1) {
+			xprintf("Starting to send data");
+			usbd_ep_write_packet(usbd_dev, AUDIO_SOURCE_EP, NULL, 0);
+		}
+	} else if (index == AUDIO_SINK_IFACE) {
+		if (value == 1) {
+		} else {
+		}
+	}
 }
 
 static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
@@ -714,8 +752,8 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 	usbd_ep_setup(usbd_dev, CDC_COMM_EP, USB_ENDPOINT_ATTR_INTERRUPT, 16, NULL);
 #endif
 
-	usbd_ep_setup(usbd_dev, AUDIO_SINK_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_OUT_PACKET_SIZE, audio_data_rx_cb);
-	usbd_ep_setup(usbd_dev, AUDIO_SOURCE_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_OUT_PACKET_SIZE, audio_data_tx_cb);
+	usbd_ep_setup(usbd_dev, AUDIO_SINK_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_SINK_PACKET_SIZE, audio_data_rx_cb);
+	usbd_ep_setup(usbd_dev, AUDIO_SOURCE_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_SOURCE_PACKET_SIZE, audio_data_tx_cb);
 
 	usbd_register_control_callback(usbd_dev,
 				USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE, //type
@@ -725,11 +763,26 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 
 static usbd_device *usbd_dev;
 
+static void fill_buffer(void) {
+	sample_ofs = 0;
+	for (uint32_t i = 0; i < sizeof(sample); i += 2) {
+		((uint16_t*)sample)[i/2] = 128*(i - sizeof(sample)/2);
+	}
+	sample_ofs = 0;
+}
+
+static uint32_t last = 0;
+
 void USBCMP_Poll(void) {
 	usbd_poll(usbd_dev);
-	// int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);
+	// int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_PACKET_SIZE);
 	// if (len > 0) {
 	// 	xprintf("poll: len=%d\n\r", len);
+	// }
+	// if (altsetting_source == 1 && (Clock_Get() - last >= 8)) {
+	// 	last = Clock_Get();
+	// 	int len = usbd_ep_write_packet(usbd_dev, AUDIO_SOURCE_EP, audio_out_buf, AUDIO_PACKET_SIZE);
+	// 	//xprintf("[%d]", len);
 	// }
 }
 
@@ -750,6 +803,8 @@ void USBCMP_Setup(void)
 
 	usbd_register_set_altsetting_callback(usbd_dev, set_altsetting_cb);
 	usbd_register_set_config_callback(usbd_dev, cdcacm_set_config);
+
+	fill_buffer();
 
 	xprintf("sink iface=%d source=%d\r\n", AUDIO_SINK_IFACE, AUDIO_SOURCE_IFACE);
 }
