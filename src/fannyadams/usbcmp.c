@@ -65,7 +65,7 @@ static const char * usb_strings[] = {
 	#define AUDIO_SOURCE_EP 				(0200 | (AUDIO_SINK_EP + 1))
 #endif
 
-// Windows appears to have some slack regarding packet size, OSX is extremely touchy
+// for 48000Hz this is 192 + 4
 #define AUDIO_SINK_PACKET_SIZE 				(USB_AUDIO_PACKET_SIZE(48000,2,16) + 4)
 #define AUDIO_SOURCE_PACKET_SIZE			(USB_AUDIO_PACKET_SIZE(48000,1,16) + 4)
 
@@ -85,6 +85,7 @@ static uint8_t audio_out_buf[AUDIO_SOURCE_PACKET_SIZE];
 #define AUDIO_SOURCE_TERMINAL_OUTPUT 	6 	// USB Stream
 
 static uint8_t audio_sink_buffer[AUDIO_SINK_PACKET_SIZE];
+static uint32_t i2s_buffer_ofs;
 
 #ifdef WITH_CDCACM
 static char cdc_buf[64];
@@ -249,9 +250,9 @@ static const struct {
 	    .wTerminalType = USB_IO_TERMINAL_TYPE_STREAMING,
 	    .bAssocTerminal = 0,
 	    .cluster_descriptor = {
-		    .bNrChannels = 1,
-		    .wChannelConfig = USB_AUDIO_CHAN_MONO,
-		    .iChannelNames = STRID_MONO_PLAYBACK
+		    .bNrChannels = 2,
+		    .wChannelConfig = USB_AUDIO_CHAN_LEFTFRONT | USB_AUDIO_CHAN_RIGHTFRONT, //USB_AUDIO_CHAN_MONO,
+		    .iChannelNames = 0,
 	    },
 	    .iTerminal = STRID_INPUT_TERMINAL,
 	},
@@ -684,6 +685,9 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 }
 #endif
 
+static uint32_t start_milli;
+static uint32_t npackets;
+
 static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	(void)ep;
@@ -691,19 +695,24 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 		int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_sink_buffer, AUDIO_SINK_PACKET_SIZE);
 		int32_t* i2s_buf = I2S_GetBuffer();
 		if (len == 0) {
-			memset(i2s_buf, 0, AUDIO_SINK_PACKET_SIZE*2);
+			memset(i2s_buf, 0, AUDIO_BUFFER_SIZE);
 		} else {
 			//xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
-			xputchar('<');
-			for (int i = 0; i < len/4; i++) {
-				// ps = 100: 25 elements of int32
-				uint32_t lr = ((int32_t*)audio_sink_buffer)[i];
-				uint16_t left = lr >> 16;
-				uint16_t right = lr & 0177777;
-				i2s_buf[i*2] = (int32_t) ((uint32_t)left << 16);
-				i2s_buf[i*2+1] = (int32_t) ((uint32_t)right << 16);
+			//xputchar('<');
+			for (int i = 0; i < len/2; i++) {
+				uint32_t samp16 = ((uint16_t*)audio_sink_buffer)[i];
+				i2s_buf[i2s_buffer_ofs++] = samp16 << 16;
+				if (i2s_buffer_ofs >= AUDIO_BUFFER_SIZE) {
+					i2s_buffer_ofs = 0;
+				}
 			}
 			I2S_Start();
+			npackets++;
+			if (Clock_Get() - start_milli == 1000) {
+				xprintf("%d packets/sec |p|=%d\r\n", npackets, len);
+				start_milli = Clock_Get();
+				npackets = 0;
+			}
 		}
 	}
 }
@@ -747,6 +756,8 @@ static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t va
 		}
 	} else if (index == AUDIO_SINK_IFACE) {
 		if (value == 1) {
+			start_milli = Clock_Get();
+			npackets = 0;
 		} else {
 		}
 	}
@@ -787,14 +798,8 @@ static uint32_t last = 0;
 
 void USBCMP_Poll(void) {
 	usbd_poll(usbd_dev);
-	// int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_PACKET_SIZE);
-	// if (len > 0) {
-	// 	xprintf("poll: len=%d\n\r", len);
-	// }
-	// if (altsetting_source == 1 && (Clock_Get() - last >= 8)) {
-	// 	last = Clock_Get();
-	// 	int len = usbd_ep_write_packet(usbd_dev, AUDIO_SOURCE_EP, audio_out_buf, AUDIO_PACKET_SIZE);
-	// 	//xprintf("[%d]", len);
+	// if (altsetting_sink) {
+	// 	xputchar('.');
 	// }
 }
 

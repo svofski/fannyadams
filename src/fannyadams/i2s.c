@@ -25,7 +25,7 @@ static void dma_setup(void) {
     dma_set_peripheral_address(DMA1, DMA_STREAM4, (uint32_t) &SPI_DR(SPI2));
 
     dma_set_memory_address(DMA1, DMA_STREAM4, (uint32_t) &buffer);
-    dma_set_number_of_data(DMA1, DMA_STREAM4, AUDIO_BUFFER_SIZE);
+    dma_set_number_of_data(DMA1, DMA_STREAM4, AUDIO_BUFFER_SIZE*2);
 
     //dma_enable_transfer_complete_interrupt(DMA1, DMA_STREAM4);
     dma_channel_select(DMA1, DMA_STREAM4, DMA_SxCR_CHSEL_0);
