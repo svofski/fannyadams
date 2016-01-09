@@ -28,6 +28,7 @@ enum USB_STRID {
 	STRID_INPUT_TERMINAL,
 	STRID_OUTPUT_TERMINAL,
 	STRID_MONO_PLAYBACK,
+	STRID_MONO_RECORDING,
 };
 
 static const char * usb_strings[] = {
@@ -36,34 +37,46 @@ static const char * usb_strings[] = {
 	"0.1",
 	"Input Terminal",
 	"Output Terminal",
-	"Mono Playback Input Terminal"
+	"Mono Playback Input Terminal",
+	"Mono Recording Input Terminal",
 };
-
-#define AUDIO_VOLUME_CONTROL_ID 10
 
 #ifdef WITH_CDCACM
 	#define NUM_INTERFACES 					4
 	#define CDCACM_COMM_INTERFACE			0
 	#define CDCACM_DATA_INTERFACE			1
 	#define AUDIO_CONTROL_IFACE 			2
-	#define AUDIO_OUT_IFACE 				3
+	#define AUDIO_SINK_IFACE 				3
 
 	#define CDC_COMM_EP 					0x83
 	#define CDC_BULK_IN_EP 					0x01
 	#define CDC_BULK_OUT_EP 				0x82
-	#define AUDIO_OUT_EP                    0x02
+	#define AUDIO_SINK_EP                   0x02
 #else
-	#define NUM_INTERFACES 					2
-	#define AUDIO_CONTROL_IFACE 			0
-	#define AUDIO_OUT_IFACE 				1
+	#define AUDIO_IFACE_START 				0
+	#define AUDIO_EP_START 					1
+	#define AUDIO_CONTROL_IFACE 			(AUDIO_IFACE_START)
+	#define AUDIO_SINK_IFACE 				(AUDIO_CONTROL_IFACE+1)
+	#define AUDIO_SOURCE_IFACE 				(AUDIO_SINK_IFACE+1)
 
-	#define AUDIO_OUT_EP                    0x01
+	#define NUM_INTERFACES 					(AUDIO_SOURCE_IFACE + 1)
+
+	#define AUDIO_SINK_EP                   (AUDIO_EP_START)
+	#define AUDIO_SOURCE_EP 				(0200 | (AUDIO_SINK_EP + 1))
 #endif
 
+// OSX wants packet size to be no less than 196
 #define AUDIO_OUT_PACKET_SIZE 			200
 
-#define AUDIO_TERMINAL_INPUT 			1
-#define AUDIO_TERMINAL_OUTPUT 			2
+// Entity IDs for audio sink terminals: input, feature control, output
+#define AUDIO_TERMINAL_INPUT 			1 	// USB Stream
+#define AUDIO_VOLUME_CONTROL_ID 		2 	// Mute/Volume Control
+#define AUDIO_TERMINAL_OUTPUT 			3 	// Speaker
+
+// Entity IDs for audio source terminals: input, output
+#define AUDIO_SOURCE_TERMINAL_INPUT		4 	// Line In
+#define AUDIO_SOURCE_VOLUME_CONTROL		5
+#define AUDIO_SOURCE_TERMINAL_OUTPUT 	6 	// USB Stream
 
 static uint8_t audio_buffer[AUDIO_OUT_PACKET_SIZE];
 
@@ -193,7 +206,7 @@ static const struct usb_interface_descriptor data_iface[] = {{
 // Class-specific AC Interface Descriptor
 static const struct {
 	struct usb_audio_header_descriptor_head header;
-	struct usb_audio_header_descriptor_body header_body[1]; // baInterfaceNr collection (1 interface in our case)
+	struct usb_audio_header_descriptor_body header_body[2]; // baInterfaceNr collection (2 interfaces)
 	struct usb_audio_input_terminal_descriptor input_terminal;
 	
 	struct usb_audio_feature_unit_descriptor_head feature_unit_head;
@@ -201,6 +214,13 @@ static const struct {
 	struct usb_audio_feature_unit_descriptor_tail feature_unit_tail;
 
 	struct usb_audio_output_terminal_descriptor output_terminal;
+
+	// microphone
+	struct usb_audio_input_terminal_descriptor source_input_terminal;
+	struct usb_audio_feature_unit_descriptor_head source_feature_head;
+	uint8_t source_feature_body[2]; // master channel + channel
+	struct usb_audio_feature_unit_descriptor_tail source_feature_tail;
+	struct usb_audio_output_terminal_descriptor source_output_terminal;
 } __attribute__((packed)) audio_control_functional_descriptors = {
 	.header = {
 		.bLength = sizeof(audio_control_functional_descriptors.header)	// header + interface nr size
@@ -209,10 +229,11 @@ static const struct {
 		.bDescriptorSubtype = USB_AUDIO_TYPE_HEADER,
 		.bcdADC = 0x0100,
 		.wTotalLength = sizeof(audio_control_functional_descriptors), 	// total size with terminal descriptors
-		.binCollection = 1, 											// 2 streaming interfaces
+		.binCollection = 2, 											// 1 streaming in + 1 streaming out
 	},
 	.header_body = {
-		{.baInterfaceNr = AUDIO_OUT_IFACE}, 	// number of audio streaming interface
+		{.baInterfaceNr = AUDIO_SINK_IFACE}, 	// sink streaming interface (speaker)
+		{.baInterfaceNr = AUDIO_SOURCE_IFACE},  // source streaming interface (microphone)
 	},
 	.input_terminal = {
 	    .bLength = USB_AUDIO_INPUT_TERMINAL_DESCRIPTOR_SIZE,
@@ -246,7 +267,7 @@ static const struct {
 		.iFeature = 0,
 	},
 
-	// Output terminal is physically a speaker, its source is the input terminal
+	// Output terminal is physically a speaker, its source is AUDIO_VOLUME_CONTROL_ID
 	.output_terminal = {
 	    .bLength = USB_AUDIO_OUTPUT_TERMINAL_DESCRIPTOR_SIZE,
 	    .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
@@ -256,7 +277,50 @@ static const struct {
 	    .bAssocTerminal = 0,
 	    .bSourceId = AUDIO_VOLUME_CONTROL_ID, 
 	    .iTerminal = STRID_OUTPUT_TERMINAL,
-	}
+	},
+
+	// Microphone: input = physical, output = usb stream
+	.source_input_terminal = {
+	    .bLength = USB_AUDIO_INPUT_TERMINAL_DESCRIPTOR_SIZE,
+	    .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+	    .bDescriptorSubtype = USB_AUDIO_TYPE_INPUT_TERMINAL,
+	    .bTerminalID = AUDIO_SOURCE_TERMINAL_INPUT,
+	    .wTerminalType = USB_AUDIO_INPUT_TERMINAL_TYPE_MICROPHONE,
+	    .bAssocTerminal = 0,
+	    .cluster_descriptor = {
+		    .bNrChannels = 1,
+		    .wChannelConfig = USB_AUDIO_CHAN_MONO,
+		    .iChannelNames = STRID_MONO_RECORDING,
+	    },
+	    .iTerminal = 0,
+	},
+	.source_feature_head = {
+	    .bLength = USB_AUDIO_FEATURE_UNIT_DESCRIPTOR_SIZE_BASE + 
+	    	sizeof(audio_control_functional_descriptors.feature_unit_body),
+	    .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+	    .bDescriptorSubtype = USB_AUDIO_TYPE_FEATURE_UNIT,
+	    .bUnitID = AUDIO_SOURCE_VOLUME_CONTROL,
+	    .bSourceID = AUDIO_SOURCE_TERMINAL_INPUT,
+	    .bControlSize = 1,
+	},
+	.source_feature_body = {
+		USB_AUDIO_CONTROL_MUTE | USB_AUDIO_CONTROL_VOLUME, // master channel
+		USB_AUDIO_CONTROL_MUTE | USB_AUDIO_CONTROL_VOLUME, // master channel
+	},
+	.source_feature_tail = {
+		.iFeature = 0,
+	},
+
+	.source_output_terminal = {
+	    .bLength = USB_AUDIO_OUTPUT_TERMINAL_DESCRIPTOR_SIZE,
+	    .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+	    .bDescriptorSubtype = USB_AUDIO_TYPE_OUTPUT_TERMINAL,
+	    .bTerminalID = AUDIO_SOURCE_TERMINAL_OUTPUT,
+	    .wTerminalType = USB_IO_TERMINAL_TYPE_STREAMING,
+	    .bAssocTerminal = 0,
+	    .bSourceId = AUDIO_SOURCE_VOLUME_CONTROL, 
+	    .iTerminal = 0,
+	},
 };
 
 // standard interface descriptor
@@ -279,12 +343,12 @@ static const struct usb_interface_descriptor audio_control_iface[] = {{
 static const struct {
 	struct usb_audio_streaming_interface_descriptor speaker;// Iface 1
 	struct usb_audio_type_i_iii_format_descriptor format; 	// Format PCM
-} __attribute__((packed)) audio_streaming_functional_descriptors = {
+} __attribute__((packed)) audio_streaming_sink_functional_descriptors = {
 	.speaker = {
 		.bLength = USB_AUDIO_STREAMING_INTERFACE_DESCRIPTOR_SIZE,
 		.bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
     	.bDescriptorSubtype = USB_AUDIO_STREAMING_DT_GENERAL,
-    	.bTerminalLink = 1,
+    	.bTerminalLink = AUDIO_TERMINAL_INPUT,
     	.bDelay = 1,
     	.wFormatTag = USB_AUDIO_FORMAT_PCM,
 	},
@@ -301,34 +365,84 @@ static const struct {
 	}
 };
 
-static const struct usb_audio_streaming_endpoint_descriptor as_endp = {
+static const struct {
+	struct usb_audio_streaming_interface_descriptor microphone;
+	struct usb_audio_type_i_iii_format_descriptor format;
+} __attribute__((packed)) audio_streaming_source_functional_descriptors = {
+	.microphone = {
+		.bLength = USB_AUDIO_STREAMING_INTERFACE_DESCRIPTOR_SIZE,
+		.bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+    	.bDescriptorSubtype = USB_AUDIO_STREAMING_DT_GENERAL,
+    	.bTerminalLink = AUDIO_SOURCE_TERMINAL_OUTPUT,
+    	.bDelay = 1,
+    	.wFormatTag = USB_AUDIO_FORMAT_PCM,
+	},
+	.format = {
+	    .bLength = USB_AUDIO_TYPE_I_III_FORMAT_DESCRIPTOR_SIZE,
+	    .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+	    .bDescriptorSubtype = USB_AUDIO_STREAMING_DT_FORMAT_TYPE,
+	    .bFormatType = USB_AUDIO_FORMAT_TYPE_I,
+	    .bNrChannels = 1,
+	    .bSubframeSize = 2,
+	    .bBitResolution = 16,
+	    .bSamFreqType = USB_AUDIO_SAMPLING_FREQ_FIXED,
+	    .tSampFreq = USB_AUDIO_SAMPFREQ(48000),
+	}
+};
+
+
+static const struct usb_audio_streaming_endpoint_descriptor as_sink_endp = {
     .bLength = USB_AUDIO_STREAMING_ENDPOINT_DESCRIPTOR_SIZE,
     .bDescriptorType = USB_AUDIO_DT_CS_ENDPOINT,
     .bDescriptorSubtype = USB_AUDIO_EP_GENERAL,
     .bmAttributes = 0,
-    .bLockDelayUnits = 1,
-    .wLockDelay = 4,
+    .bLockDelayUnits = 1, // milliseconds
+    .wLockDelay = 4, 	  // 4ms
 };
 
-static const struct usb_endpoint_descriptor audio_endp[] = {{
+static const struct usb_audio_streaming_endpoint_descriptor as_source_endp = {
+    .bLength = USB_AUDIO_STREAMING_ENDPOINT_DESCRIPTOR_SIZE,
+    .bDescriptorType = USB_AUDIO_DT_CS_ENDPOINT,
+    .bDescriptorSubtype = USB_AUDIO_EP_GENERAL,
+    .bmAttributes = 0,
+    .bLockDelayUnits = 0,
+    .wLockDelay = 0,
+};
+
+static const struct usb_endpoint_descriptor audio_sink_endp[] = {{
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
-	.bEndpointAddress = AUDIO_OUT_EP,
+	.bEndpointAddress = AUDIO_SINK_EP,
 	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC,
 	.wMaxPacketSize = AUDIO_OUT_PACKET_SIZE,
 	.bInterval = 1,
 	.bRefresh = 0,
 	.bSynchAddress = 0,
 
-	.extra = &as_endp,
-	.extralen = sizeof(as_endp)
+	.extra = &as_sink_endp,
+	.extralen = sizeof(as_sink_endp)
 }};
 
-static const struct usb_interface_descriptor audio_streaming_iface[] = {
+static const struct usb_endpoint_descriptor audio_source_endp[] = {{
+	.bLength = USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType = USB_DT_ENDPOINT,
+	.bEndpointAddress = AUDIO_SOURCE_EP,
+	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC,
+	.wMaxPacketSize = AUDIO_OUT_PACKET_SIZE,
+	.bInterval = 1,
+	.bRefresh = 0,
+	.bSynchAddress = 0,
+
+	.extra = &as_source_endp,
+	.extralen = sizeof(as_source_endp)
+}};
+
+// Audio sink: USB Speaker
+static const struct usb_interface_descriptor audio_streaming_sink_iface[] = {
 	{
 	    .bLength = USB_DT_INTERFACE_SIZE,
 	    .bDescriptorType = USB_DT_INTERFACE,
-	    .bInterfaceNumber = AUDIO_OUT_IFACE,
+	    .bInterfaceNumber = AUDIO_SINK_IFACE,
 	    .bAlternateSetting = 0,
 	    .bNumEndpoints = 0,
 	    .bInterfaceClass = USB_CLASS_AUDIO,
@@ -339,7 +453,7 @@ static const struct usb_interface_descriptor audio_streaming_iface[] = {
 	{
 	    .bLength = USB_AUDIO_INTERFACE_DESCRIPTOR_SIZE,
 	    .bDescriptorType = USB_DT_INTERFACE,
-	    .bInterfaceNumber = AUDIO_OUT_IFACE,
+	    .bInterfaceNumber = AUDIO_SINK_IFACE,
 	    .bAlternateSetting = 1,
 	    .bNumEndpoints = 1,
 	    .bInterfaceClass = USB_CLASS_AUDIO,
@@ -347,15 +461,47 @@ static const struct usb_interface_descriptor audio_streaming_iface[] = {
 	    .bInterfaceProtocol = 0,
 	    .iInterface = 0,
 
-		.endpoint = audio_endp,
+		.endpoint = audio_sink_endp,
 
-		.extra = &audio_streaming_functional_descriptors,
-		.extralen = sizeof(audio_streaming_functional_descriptors)
+		.extra = &audio_streaming_sink_functional_descriptors,
+		.extralen = sizeof(audio_streaming_sink_functional_descriptors)
+	}	
+};
+
+// Audio source: USB Microphone/Line In
+static const struct usb_interface_descriptor audio_streaming_source_iface[] = {
+	{
+	    .bLength = USB_DT_INTERFACE_SIZE,
+	    .bDescriptorType = USB_DT_INTERFACE,
+	    .bInterfaceNumber = AUDIO_SOURCE_IFACE,
+	    .bAlternateSetting = 0,
+	    .bNumEndpoints = 0,
+	    .bInterfaceClass = USB_CLASS_AUDIO,
+	    .bInterfaceSubClass = USB_AUDIO_SUBCLASS_AUDIOSTREAMING,
+	    .bInterfaceProtocol = 0,
+	    .iInterface = 0,
+	},
+	{
+	    .bLength = USB_AUDIO_INTERFACE_DESCRIPTOR_SIZE,
+	    .bDescriptorType = USB_DT_INTERFACE,
+	    .bInterfaceNumber = AUDIO_SOURCE_IFACE,
+	    .bAlternateSetting = 1,
+	    .bNumEndpoints = 1,
+	    .bInterfaceClass = USB_CLASS_AUDIO,
+	    .bInterfaceSubClass = USB_AUDIO_SUBCLASS_AUDIOSTREAMING,
+	    .bInterfaceProtocol = 0,
+	    .iInterface = 0,
+
+		.endpoint = audio_source_endp,
+
+		.extra = &audio_streaming_source_functional_descriptors,
+		.extralen = sizeof(audio_streaming_source_functional_descriptors)
 	}	
 };
 
 
-static uint8_t altsetting = 0;
+static uint8_t altsetting_sink = 0;
+static uint8_t altsetting_source = 0;
 
 static const struct usb_interface ifaces[] = {
 #ifdef WITH_CDCACM
@@ -374,9 +520,14 @@ static const struct usb_interface ifaces[] = {
 	},
 	{
 	.num_altsetting = 2,
-	.cur_altsetting = &altsetting,
-	.altsetting = audio_streaming_iface,
+	.cur_altsetting = &altsetting_sink,
+	.altsetting = audio_streaming_sink_iface,
 	},
+	{
+	.num_altsetting = 2,
+	.cur_altsetting = &altsetting_source,
+	.altsetting = audio_streaming_source_iface,
+	}
 	};
 
 
@@ -384,7 +535,7 @@ static const struct usb_config_descriptor config = {
 	.bLength = USB_DT_CONFIGURATION_SIZE,
 	.bDescriptorType = USB_DT_CONFIGURATION,
 	.wTotalLength = 0, 			// Length of the total configuration block, including this descriptor, in bytes.
-	.bNumInterfaces = NUM_INTERFACES,
+	.bNumInterfaces = sizeof(ifaces)/sizeof(ifaces[0]),
 	.bConfigurationValue = 1, 	
 	.iConfiguration = 0,
 	.bmAttributes = USB_CONFIG_ATTR_DEFAULT,
@@ -394,8 +545,8 @@ static const struct usb_config_descriptor config = {
 };
 
 
-/* Buffer to be used for control requests. */
-static uint8_t usbd_control_buffer[128];
+/* Buffer to be used for control requests. Needs to be large to fit all those descriptors. */
+static uint8_t usbd_control_buffer[256];
 
 // static void req_set_complete_cb(usbd_device *usbd_dev, struct usb_setup_data *req) {
 // 	xprintf("req_set_complete_cb - not sure what now!\n\r");
@@ -530,14 +681,23 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	(void)ep;
-	int len = usbd_ep_read_packet(usbd_dev, AUDIO_OUT_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);
+	int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);
 	xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
 }
+
+static void audio_data_tx_cb(usbd_device *usbd_dev, uint8_t ep)
+{
+	(void)ep;
+	xprintf("### TX\n\r");
+//	int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);
+//	xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
+}
+
 
 static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t value) {
 	xprintf("set_altsetting_cb: iface=%d value=%d\r\n", index, value);
 	// if (value == 1) {
-	// 	int len = usbd_ep_read_packet(usbd_dev, AUDIO_OUT_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);		
+	// 	int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);		
 	// 	xprintf("altsetting/read start: len=%d\n\r", len);
 	// }
 }
@@ -554,7 +714,8 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 	usbd_ep_setup(usbd_dev, CDC_COMM_EP, USB_ENDPOINT_ATTR_INTERRUPT, 16, NULL);
 #endif
 
-	usbd_ep_setup(usbd_dev, AUDIO_OUT_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_OUT_PACKET_SIZE, audio_data_rx_cb);
+	usbd_ep_setup(usbd_dev, AUDIO_SINK_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_OUT_PACKET_SIZE, audio_data_rx_cb);
+	usbd_ep_setup(usbd_dev, AUDIO_SOURCE_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_OUT_PACKET_SIZE, audio_data_tx_cb);
 
 	usbd_register_control_callback(usbd_dev,
 				USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE, //type
@@ -566,7 +727,7 @@ static usbd_device *usbd_dev;
 
 void USBCMP_Poll(void) {
 	usbd_poll(usbd_dev);
-	// int len = usbd_ep_read_packet(usbd_dev, AUDIO_OUT_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);
+	// int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_buffer, AUDIO_OUT_PACKET_SIZE);
 	// if (len > 0) {
 	// 	xprintf("poll: len=%d\n\r", len);
 	// }
@@ -589,4 +750,6 @@ void USBCMP_Setup(void)
 
 	usbd_register_set_altsetting_callback(usbd_dev, set_altsetting_cb);
 	usbd_register_set_config_callback(usbd_dev, cdcacm_set_config);
+
+	xprintf("sink iface=%d source=%d\r\n", AUDIO_SINK_IFACE, AUDIO_SOURCE_IFACE);
 }

@@ -41,6 +41,7 @@ int main(void)
         USBCMP_Poll();
         if (xavail()) {
             int c = xgetchar();
+            xprintf("c=%02x ", c);
             switch (c) {
                 case 'q':   Power_SetFactor(Power_GetFactor() - 1); break;
                 case 'w':   Power_SetFactor(Power_GetFactor() + 1); break;
