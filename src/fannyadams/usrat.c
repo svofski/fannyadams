@@ -10,7 +10,7 @@
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
-#define BUFFER_SIZE   32
+#define BUFFER_SIZE   256
 
 volatile uint8_t TxBuffer[BUFFER_SIZE];
 volatile uint8_t RxBuffer[BUFFER_SIZE];
@@ -43,6 +43,7 @@ void Debug_UART_Setup(void)
 
     /* Enable the USART1 interrupt. */
     nvic_enable_irq(NVIC_USART1_IRQ);
+    nvic_set_priority(NVIC_USART1_IRQ, 4);
 
     /* Setup GPIO pins for USART1 transmit. */
     gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO6);
@@ -56,7 +57,7 @@ void Debug_UART_Setup(void)
     gpio_set_af(GPIOB, GPIO_AF7, GPIO7);
 
     /* Setup USART1 parameters. */
-    usart_set_baudrate(USART1, 115200);
+    usart_set_baudrate(USART1, 230400);//115200);
     usart_set_databits(USART1, 8);
     usart_set_stopbits(USART1, USART_STOPBITS_1);
     usart_set_mode(USART1, USART_MODE_TX_RX);

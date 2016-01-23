@@ -7,12 +7,18 @@
 #include <libopencm3/stm32/spi.h>
 
 #include "i2s.h"
+#include "systick.h"
 
-static int32_t buffer[AUDIO_BUFFER_SIZE];
+static int32_t buffer1[AUDIO_BUFFER_SIZE];
+static int32_t buffer2[AUDIO_BUFFER_SIZE];
+static uint32_t pingpong = 0;
+
+static dma_callback callback;
+
+uint32_t I2S_DMA_TICK;
 
 static void dma_setup(void) {
     rcc_periph_clock_enable(RCC_DMA1);
-    //nvic_enable_irq(DMA2_STREAM1_IRQ);
 
     dma_stream_reset(DMA1, DMA_STREAM4);
     dma_set_priority(DMA1, DMA_STREAM4, DMA_SxCR_PL_LOW);
@@ -21,22 +27,45 @@ static void dma_setup(void) {
     dma_set_peripheral_size(DMA1, DMA_STREAM4, DMA_SxCR_PSIZE_16BIT);   // halfword peripheral size
     dma_enable_memory_increment_mode(DMA1, DMA_STREAM4);
     dma_enable_circular_mode(DMA1, DMA_STREAM4);
+    dma_enable_double_buffer_mode(DMA1, DMA_STREAM4);
     dma_set_transfer_mode(DMA1, DMA_STREAM4, DMA_SxCR_DIR_MEM_TO_PERIPHERAL);
     dma_set_peripheral_address(DMA1, DMA_STREAM4, (uint32_t) &SPI_DR(SPI2));
 
-    dma_set_memory_address(DMA1, DMA_STREAM4, (uint32_t) &buffer);
+    dma_set_memory_address(DMA1, DMA_STREAM4, (uint32_t) &buffer1);
+    dma_set_memory_address_1(DMA1, DMA_STREAM4, (uint32_t) &buffer2);
     dma_set_number_of_data(DMA1, DMA_STREAM4, AUDIO_BUFFER_SIZE*2);
 
-    //dma_enable_transfer_complete_interrupt(DMA1, DMA_STREAM4);
+    // interruptnik
+    nvic_enable_irq(NVIC_DMA1_STREAM4_IRQ);
+    dma_enable_transfer_complete_interrupt(DMA1, DMA_STREAM4);
+    //dma_enable_half_transfer_interrupt(DMA1, DMA_STREAM4);
+
     dma_channel_select(DMA1, DMA_STREAM4, DMA_SxCR_CHSEL_0);
     dma_enable_stream(DMA1, DMA_STREAM4);
+}
+
+void dma1_stream4_isr(void) {
+    dma_clear_interrupt_flags(DMA1, DMA_STREAM4, DMA_TCIF | DMA_HTIF);
+    I2S_DMA_TICK++;// = Clock_Get();
+    pingpong = (pingpong + 1) & 1;
+    if (callback) {
+        (*callback)();
+    }
+}
+
+int32_t* I2S_GetBuffer() {
+    return pingpong ? buffer1 : buffer2;
+}
+
+void I2S_SetCallback(dma_callback cb) {
+    callback = cb;
 }
 
 void I2S_InitBuffer() {
     int32_t n = 0x80000000;
     for (int i = 0; i < AUDIO_BUFFER_SIZE; i+=2) {
-        buffer[i] = +n; //0x800000 + n;
-        buffer[i+1] = -n; //0x800000 - n;
+        buffer1[i] = +n; //0x800000 + n;
+        buffer1[i+1] = -n; //0x800000 - n;
         n += 0x01000000;// 0x7fffffffL/AUDIO_BUFFER_SIZE/2;
     }
 }
@@ -114,16 +143,15 @@ void I2S_Setup(void) {
         | DIV;
 
     dma_setup();
-
-    //SPI_I2SCFGR(SPI2) |= SPI_I2SCFGR_I2SE;      // Enable I2S2
-}
-
-int32_t* I2S_GetBuffer() {
-    return buffer;
 }
 
 void I2S_Start() {
     SPI_I2SCFGR(SPI2) |= SPI_I2SCFGR_I2SE;      // Enable I2S2   
+}
+
+void I2S_Pause() {
+    SPI_I2SCFGR(SPI2) &= ~SPI_I2SCFGR_I2SE;      // Enable I2S2       
+    dma_setup();
 }
 
 void I2S_Shutdown(void) {

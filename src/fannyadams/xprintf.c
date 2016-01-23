@@ -108,7 +108,7 @@ static void uputchar(UART_HandleTypeDef *huart, char c)
 
 static void printchar(char **str, int c)
 {
-    extern int xputchar(int c);
+    //extern int xputchar(int c);
 
     if (str) {
         **str = c;

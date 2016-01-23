@@ -6,13 +6,32 @@
 #include <libopencm3/usb/cdc.h>
 #include <libopencm3/usb/audio.h>
 #include <libopencm3/cm3/scb.h>
+#include <libopencm3/stm32/timer.h>
+#include <libopencm3/cm3/nvic.h>
+#include <libopencm3/stm32/dma.h>
+#include <libopencm3/stm32/otg_common.h>
+#include <libopencm3/stm32/otg_fs.h>
+#include <libopencm3/stm32/otg_hs.h>
 
 #include "usbcmp.h"
 #include "systick.h"
 #include "xprintf.h"
 #include "i2s.h"
 
+#define SOURCE_CHANNELS 1
+#if SOURCE_CHANNELS == 1
+  #define SOURCE_CHANNEL_MAPPING (USB_AUDIO_CHAN_MONO)
+  #define SOURCE_SAMPLE_SIZE 2
+#else
+  #define SOURCE_CHANNEL_MAPPING (USB_AUDIO_CHAN_LEFTFRONT | USB_AUDIO_CHAN_RIGHTFRONT)
+#define SOURCE_SAMPLE_SIZE 4
+#endif
+//#define WITH_MICROPHONE
+#define FEEDBACK_EXPLICIT
+//#define FEEDBACK_IMPLICIT
+
 #define USB_EP0 						0x00
+#define STFU(x) ((void)(x))
 
 typedef struct _AudioParams {
 	int Mute;
@@ -30,8 +49,6 @@ enum USB_STRID {
 	STRID_VERSION,
 	STRID_INPUT_TERMINAL,
 	STRID_OUTPUT_TERMINAL,
-	STRID_MONO_PLAYBACK,
-	STRID_MONO_RECORDING,
 };
 
 static const char * usb_strings[] = {
@@ -40,8 +57,6 @@ static const char * usb_strings[] = {
 	"0.1",
 	"Input Terminal",
 	"Output Terminal",
-	"Mono Playback Input Terminal",
-	"Mono Recording Input Terminal",
 };
 
 #ifdef WITH_CDCACM
@@ -62,17 +77,17 @@ static const char * usb_strings[] = {
 	#define AUDIO_SOURCE_IFACE 				(AUDIO_SINK_IFACE+1)
 
 	#define AUDIO_SINK_EP                   (AUDIO_EP_START)
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 	#define AUDIO_SOURCE_EP 				(0200 | (AUDIO_SINK_EP + 1))
+#endif
+#if defined(FEEDBACK_EXPLICIT)
+	#define AUDIO_SYNCH_EP 					(0200 | (AUDIO_SINK_EP + 2))
+#endif
 #endif
 
 // for 48000Hz this is 192 + 4
 #define AUDIO_SINK_PACKET_SIZE 				(USB_AUDIO_PACKET_SIZE(48000,2,16) + 4)
-#define AUDIO_SOURCE_PACKET_SIZE			(USB_AUDIO_PACKET_SIZE(48000,1,16) + 4)
-
-static uint16_t sample_ofs;
-static uint8_t sample[480];
-
-static uint8_t audio_out_buf[AUDIO_SOURCE_PACKET_SIZE];
+#define AUDIO_SOURCE_PACKET_SIZE			(USB_AUDIO_PACKET_SIZE(48000,SOURCE_CHANNELS,16) + SOURCE_SAMPLE_SIZE)
 
 // Entity IDs for audio sink terminals: input, feature control, output
 #define AUDIO_TERMINAL_INPUT 			1 	// USB Stream
@@ -84,8 +99,16 @@ static uint8_t audio_out_buf[AUDIO_SOURCE_PACKET_SIZE];
 #define AUDIO_SOURCE_VOLUME_CONTROL		5
 #define AUDIO_SOURCE_TERMINAL_OUTPUT 	6 	// USB Stream
 
-static uint8_t audio_sink_buffer[AUDIO_SINK_PACKET_SIZE];
-static uint32_t i2s_buffer_ofs;
+//static uint8_t audio_sink_buffer[AUDIO_SINK_PACKET_SIZE];
+static uint8_t audio_sink_buffer[192 * 12];
+//static volatile uint32_t i2s_buffer_ofs;
+
+static uint16_t sample_ofs;
+static uint8_t sample[480];
+
+static uint8_t audio_out_buf[AUDIO_SOURCE_PACKET_SIZE];
+static usbd_device *device;
+
 
 #ifdef WITH_CDCACM
 static char cdc_buf[64];
@@ -222,12 +245,15 @@ static const struct {
 
 	struct usb_audio_output_terminal_descriptor output_terminal;
 
-	// microphone
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
+	// microphone or dummy feedback source
 	struct usb_audio_input_terminal_descriptor source_input_terminal;
 	struct usb_audio_feature_unit_descriptor_head source_feature_head;
-	uint8_t source_feature_body[2]; // master channel + channel
+	uint8_t source_feature_body[2]; 	
 	struct usb_audio_feature_unit_descriptor_tail source_feature_tail;
 	struct usb_audio_output_terminal_descriptor source_output_terminal;
+#endif
+
 } __attribute__((packed)) audio_control_functional_descriptors = {
 	.header = {
 		.bLength = sizeof(audio_control_functional_descriptors.header)	// header + interface nr size
@@ -236,12 +262,20 @@ static const struct {
 		.bDescriptorSubtype = USB_AUDIO_TYPE_HEADER,
 		.bcdADC = 0x0100,
 		.wTotalLength = sizeof(audio_control_functional_descriptors), 	// total size with terminal descriptors
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 		.binCollection = 2, 											// 1 streaming in + 1 streaming out
+#else 
+		.binCollection = 1, 											// 1 streaming out
+#endif
 	},
 	.header_body = {
 		{.baInterfaceNr = AUDIO_SINK_IFACE}, 	// sink streaming interface (speaker)
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 		{.baInterfaceNr = AUDIO_SOURCE_IFACE},  // source streaming interface (microphone)
+#endif
 	},
+
+	// Speaker: IT:Streaming -> Feature -> OT: Speaker
 	.input_terminal = {
 	    .bLength = USB_AUDIO_INPUT_TERMINAL_DESCRIPTOR_SIZE,
 	    .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
@@ -251,7 +285,7 @@ static const struct {
 	    .bAssocTerminal = 0,
 	    .cluster_descriptor = {
 		    .bNrChannels = 2,
-		    .wChannelConfig = USB_AUDIO_CHAN_LEFTFRONT | USB_AUDIO_CHAN_RIGHTFRONT, //USB_AUDIO_CHAN_MONO,
+		    .wChannelConfig = USB_AUDIO_CHAN_LEFTFRONT | USB_AUDIO_CHAN_RIGHTFRONT, 
 		    .iChannelNames = 0,
 	    },
 	    .iTerminal = STRID_INPUT_TERMINAL,
@@ -286,7 +320,8 @@ static const struct {
 	    .iTerminal = STRID_OUTPUT_TERMINAL,
 	},
 
-	// Microphone: input = physical, output = usb stream
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
+	// Microphone: IT:Microphone -> Feature -> OT:USB stream
 	.source_input_terminal = {
 	    .bLength = USB_AUDIO_INPUT_TERMINAL_DESCRIPTOR_SIZE,
 	    .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
@@ -295,9 +330,9 @@ static const struct {
 	    .wTerminalType = USB_AUDIO_INPUT_TERMINAL_TYPE_MICROPHONE,
 	    .bAssocTerminal = 0,
 	    .cluster_descriptor = {
-		    .bNrChannels = 1,
-		    .wChannelConfig = USB_AUDIO_CHAN_MONO,
-		    .iChannelNames = STRID_MONO_RECORDING,
+		    .bNrChannels = SOURCE_CHANNELS,
+		    .wChannelConfig = SOURCE_CHANNEL_MAPPING,
+		    .iChannelNames = 0,
 	    },
 	    .iTerminal = 0,
 	},
@@ -328,6 +363,7 @@ static const struct {
 	    .bSourceId = AUDIO_SOURCE_VOLUME_CONTROL, 
 	    .iTerminal = 0,
 	},
+#endif // WITH_MICROPHONE
 };
 
 // standard interface descriptor
@@ -372,6 +408,7 @@ static const struct {
 	}
 };
 
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 static const struct {
 	struct usb_audio_streaming_interface_descriptor microphone;
 	struct usb_audio_type_i_iii_format_descriptor format;
@@ -396,17 +433,18 @@ static const struct {
 	    .tSampFreq = USB_AUDIO_SAMPFREQ(48000),
 	}
 };
-
+#endif
 
 static const struct usb_audio_streaming_endpoint_descriptor as_sink_endp = {
     .bLength = USB_AUDIO_STREAMING_ENDPOINT_DESCRIPTOR_SIZE,
     .bDescriptorType = USB_AUDIO_DT_CS_ENDPOINT,
     .bDescriptorSubtype = USB_AUDIO_EP_GENERAL,
     .bmAttributes = 0,
-    .bLockDelayUnits = 1, // milliseconds
-    .wLockDelay = 4, 	  // 4ms
+    .bLockDelayUnits = 0,//1, // milliseconds
+    .wLockDelay = 0, //4, 	  // 4ms
 };
 
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 static const struct usb_audio_streaming_endpoint_descriptor as_source_endp = {
     .bLength = USB_AUDIO_STREAMING_ENDPOINT_DESCRIPTOR_SIZE,
     .bDescriptorType = USB_AUDIO_DT_CS_ENDPOINT,
@@ -415,26 +453,53 @@ static const struct usb_audio_streaming_endpoint_descriptor as_source_endp = {
     .bLockDelayUnits = 0,
     .wLockDelay = 0,
 };
+#endif
 
 static const struct usb_endpoint_descriptor audio_sink_endp[] = {{
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
 	.bEndpointAddress = AUDIO_SINK_EP,
+	//.bmAttributes = USB_ENDPOINT_ATTR_ISO_ADAPTIVE, //USB_ENDPOINT_ATTR_ISO_ASYNC,
+#if defined(FEEDBACK_EXPLICIT) || defined(FEEDBACK_IMPLICIT)
 	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC,
+#else
+	.bmAttributes = USB_ENDPOINT_ATTR_ISO_SYNC,
+#endif	
 	.wMaxPacketSize = AUDIO_SINK_PACKET_SIZE,
 	.bInterval = 1,
 	.bRefresh = 0,
+#if defined(FEEDBACK_EXPLICIT)
+	.bSynchAddress = AUDIO_SYNCH_EP,
+#else
 	.bSynchAddress = 0,
-
+#endif
 	.extra = &as_sink_endp,
 	.extralen = sizeof(as_sink_endp)
-}};
+	},
+#if defined(FEEDBACK_EXPLICIT)
+	{
+	.bLength = USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType = USB_DT_ENDPOINT,
+	.bEndpointAddress = AUDIO_SYNCH_EP,
+	.bmAttributes = USB_ENDPOINT_ATTR_ISOCHRONOUS,
+	.wMaxPacketSize = 3,
+	.bInterval = 1,
+	.bRefresh = 0, // powers of 2: from 1 = 2ms to 9 = 512ms
+	.bSynchAddress = 0,
+	}
+#endif
+};
 
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 static const struct usb_endpoint_descriptor audio_source_endp[] = {{
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
 	.bEndpointAddress = AUDIO_SOURCE_EP,
-	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC,
+#if defined(WITH_MICROPHONE)
+	.bmAttributes = USB_ENDPOINT_ATTR_ISO_SYNC,
+#else // implicit
+	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC | USB_ENDPOINT_USAGE_IMPLICIT_FEEDBACK,
+#endif
 	.wMaxPacketSize = AUDIO_SOURCE_PACKET_SIZE,
 	.bInterval = 1,
 	.bRefresh = 0,
@@ -443,6 +508,7 @@ static const struct usb_endpoint_descriptor audio_source_endp[] = {{
 	.extra = &as_source_endp,
 	.extralen = sizeof(as_source_endp)
 }};
+#endif
 
 // Audio sink: USB Speaker
 static const struct usb_interface_descriptor audio_streaming_sink_iface[] = {
@@ -462,7 +528,7 @@ static const struct usb_interface_descriptor audio_streaming_sink_iface[] = {
 	    .bDescriptorType = USB_DT_INTERFACE,
 	    .bInterfaceNumber = AUDIO_SINK_IFACE,
 	    .bAlternateSetting = 1,
-	    .bNumEndpoints = 1,
+	    .bNumEndpoints = sizeof(audio_sink_endp)/(sizeof(audio_sink_endp[0])), //2,
 	    .bInterfaceClass = USB_CLASS_AUDIO,
 	    .bInterfaceSubClass = USB_AUDIO_SUBCLASS_AUDIOSTREAMING,
 	    .bInterfaceProtocol = 0,
@@ -475,6 +541,7 @@ static const struct usb_interface_descriptor audio_streaming_sink_iface[] = {
 	}	
 };
 
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 // Audio source: USB Microphone/Line In
 static const struct usb_interface_descriptor audio_streaming_source_iface[] = {
 	{
@@ -505,7 +572,7 @@ static const struct usb_interface_descriptor audio_streaming_source_iface[] = {
 		.extralen = sizeof(audio_streaming_source_functional_descriptors)
 	}	
 };
-
+#endif
 
 static uint8_t altsetting_sink = 0;
 static uint8_t altsetting_source = 0;
@@ -530,11 +597,13 @@ static const struct usb_interface ifaces[] = {
 	.cur_altsetting = &altsetting_sink,
 	.altsetting = audio_streaming_sink_iface,
 	},
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 	{
 	.num_altsetting = 2,
 	.cur_altsetting = &altsetting_source,
 	.altsetting = audio_streaming_source_iface,
-	}
+	},
+#endif
 	};
 
 
@@ -542,7 +611,7 @@ static const struct usb_config_descriptor config = {
 	.bLength = USB_DT_CONFIGURATION_SIZE,
 	.bDescriptorType = USB_DT_CONFIGURATION,
 	.wTotalLength = 0, 			// Length of the total configuration block, including this descriptor, in bytes.
-	.bNumInterfaces = sizeof(ifaces)/sizeof(ifaces[0]) - 1, // disable recording interface
+	.bNumInterfaces = sizeof(ifaces)/sizeof(ifaces[0]), 
 	.bConfigurationValue = 1, 	
 	.iConfiguration = 0,
 	.bmAttributes = USB_CONFIG_ATTR_DEFAULT,
@@ -612,9 +681,6 @@ static int common_control_request(usbd_device *usbd_dev,
 						*len = 0;
 				}
 			}
-			// (*buf)[0] = 0x33;
-			// (*buf)[1] = 0x33;
-			// *len = 2;
 		}
 		return USBD_REQ_HANDLED;
 	case USB_AUDIO_REQ_SET_CUR:
@@ -639,10 +705,7 @@ static int common_control_request(usbd_device *usbd_dev,
 				}
 			}
 
-			//*complete = req_set_complete_cb;
-			//(*buf)[0] =  USB_AUDIO_REQ_SET_CUR;
-			//(*buf)[1] = 
-			return USBD_REQ_HANDLED; // USBD_REQ_NEXT_CALLBACK ?
+			return USBD_REQ_HANDLED; 
 		}
 	case USB_AUDIO_REQ_GET_MIN:
 		{
@@ -687,78 +750,261 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 
 static uint32_t start_milli;
 static uint32_t npackets;
+static volatile uint32_t receive_ena;
+static volatile uint32_t i2s_paused;
+static volatile uint32_t rxhead, rxtail, rxtop = sizeof(audio_sink_buffer);
+static volatile uint16_t fb_timer_last;
+
+static volatile uint32_t feedback_value = 48 << 14;
+static volatile uint32_t sink_buffer_fullness;
+
+#define PRESCALER2 (168e6/(4800e3/2)/2) // == 2400 counts per frame
+
+// The SOF pulse signal is also internally
+// connected to the TIM2 input trigger, so that the input capture feature, the output compare
+// feature and the timer can be triggered by the SOF pulse. The TIM2 connection is enabled
+// through the ITR1_RMP bits of the TIM2 option register (TIM2_OR).
+// The end of periodic frame interrupt (GINTSTS/EOPF) is used to notify 
+
+static void feedback_timer_start(void) {
+	rcc_periph_clock_enable(RCC_TIM2);
+    timer_set_mode(TIM2, TIM_CR1_CKD_CK_INT, TIM_CR1_CMS_EDGE, TIM_CR1_DIR_UP);
+    //timer_set_prescaler(TIM2, PRESCALER2);//175); 175 for 480 counts per frame
+    timer_set_prescaler(TIM2, 0);
+
+    timer_ic_disable(TIM2, TIM_IC1);  						// channel must be disabled first
+    timer_disable_oc_output(TIM2, TIM_OC1); 				// disable output
+    timer_ic_set_input(TIM2, TIM_IC1, TIM_IC_IN_TRC);  		// input is TRC
+    timer_ic_set_prescaler(TIM2, TIM_IC1, TIM_IC_PSC_OFF); 	// prescaler off
+    timer_ic_set_polarity(TIM2, TIM_IC1, TIM_IC_RISING); 	// capture rising edge
+    timer_ic_enable(TIM2, TIM_IC1);  						// enable input capture channel 1
+
+
+    timer_set_option(TIM2, TIM2_OR_ITR1_RMP_OTG_FS_SOF); 	// SOF is trigger 1
+    timer_slave_set_mode(TIM2, TIM_SMCR_SMS_RM); 			// reset counter on trigger (SOF)
+    timer_slave_set_trigger(TIM2, TIM_SMCR_TS_ITR1); 		// use trigger 1 for slaving
+
+    timer_enable_counter(TIM2);
+}
+
+static void feedback_timer_stop(void) {
+	timer_disable_counter(TIM2);
+}
+
+static void send_explicit_fb(usbd_device *usbd_dev, size_t avail) 
+{
+	uint32_t tim2 = TIM_CCR1(TIM2);// - 12 seems to be a good correction		
+	if (avail < sizeof(audio_sink_buffer)/3) {
+		tim2 += -8;
+	} else {
+		tim2 += -20;
+	}
+	feedback_value = (tim2 << 14) / 1750;
+#if defined(FEEDBACK_EXPLICIT)
+	usbd_ep_write_packet(usbd_dev, AUDIO_SYNCH_EP, &feedback_value, 3);
+#else
+	STFU(usbd_dev);
+#endif
+}
+
+volatile uint32_t npackets_fb;
+volatile uint32_t nints;
+volatile uint32_t msk, sts;
+volatile uint32_t* gintmsk = &OTG_FS_GINTMSK;
+volatile uint32_t* gintsts = &OTG_FS_GINTSTS;
+volatile uint32_t flush_incomplete;
+
+static void flush_synch_ep() {
+	OTG_FS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | ((AUDIO_SYNCH_EP & 0177) << 6); // -- this works as in makes the packets never reach the target
+
+	while((OTG_FS_GRSTCTL & OTG_GRSTCTL_TXFFLSH) == OTG_GRSTCTL_TXFFLSH);
+}
+
+void otg_fs_isr(void) {
+	OTG_FS_GINTSTS |= OTG_GINTSTS_IISOIXFR; // clear interrupt flag
+	flush_incomplete++;
+
+	//flush_synch_ep();
+	
+	// OTG_FS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | ((AUDIO_SYNCH_EP & 0177) << 6); // -- this works as in makes the packets never reach the target
+
+	// while((OTG_FS_GRSTCTL & OTG_GRSTCTL_TXFFLSH) == OTG_GRSTCTL_TXFFLSH);
+
+	nints++;
+}
+
+#if defined(FEEDBACK_EXPLICIT)
+static void audio_synch_tx_cb(usbd_device *usbd_dev, uint8_t ep)
+{
+	send_explicit_fb(usbd_dev, sink_buffer_fullness);
+	npackets_fb++;
+	//xputchar('#');
+}
+#endif
 
 static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	(void)ep;
+
 	if (altsetting_sink) {
-		int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_sink_buffer, AUDIO_SINK_PACKET_SIZE);
-		int32_t* i2s_buf = I2S_GetBuffer();
-		if (len == 0) {
-			memset(i2s_buf, 0, AUDIO_BUFFER_SIZE);
-		} else {
-			//xprintf("|iso|=%d %+6d %+6d\n\r", len, ((int16_t*)audio_buffer)[0], ((int16_t*)audio_buffer)[1]);
-			//xputchar('<');
-			for (int i = 0; i < len/2; i++) {
-				uint32_t samp16 = ((uint16_t*)audio_sink_buffer)[i];
-				i2s_buf[i2s_buffer_ofs++] = samp16 << 16;
-				if (i2s_buffer_ofs >= AUDIO_BUFFER_SIZE) {
-					i2s_buffer_ofs = 0;
-				}
+		npackets++;
+
+		int avail = sizeof(audio_sink_buffer) - rxhead;
+		int read = 0;
+		for(;;)	{
+			int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, audio_sink_buffer + rxhead, avail);
+			if (len == 0) {
+				break;
 			}
-			I2S_Start();
-			npackets++;
-			if (Clock_Get() - start_milli == 1000) {
-				xprintf("%d packets/sec |p|=%d\r\n", npackets, len);
-				start_milli = Clock_Get();
-				npackets = 0;
+			read += len;
+			rxhead += len;
+			if (rxhead == sizeof(audio_sink_buffer)) {
+				rxhead = 0;
 			}
+		}
+
+		sink_buffer_fullness = (rxhead >= rxtail) ? (rxhead - rxtail) : (rxhead + rxtop - rxtail);
+		
+		// if (flush_incomplete) {
+		// 	flush_incomplete = 0;
+		// 	/* Flush all tx/rx fifos */
+		// 	OTG_FS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | OTG_GRSTCTL_TXFNUM_ALL;
+		// 			      //| OTG_GRSTCTL_RXFFLSH;
+		// }
+		send_explicit_fb(usbd_dev, sink_buffer_fullness);
+		//usbd_ep_write_packet(usbd_dev, AUDIO_SYNCH_EP, 0, 0);
+
+		xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
+		//xprintf("|%d|", read);
+		if (npackets % 20 == 0) {
+			xprintf("fb=%d.%03d |%d| ->%d x%d\r\n", 
+					feedback_value >> 14, ((feedback_value>>4) & 0x3ff)*1000/1024, sink_buffer_fullness, 
+					npackets_fb, nints);
 		}
 	}
 }
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
+
+static void audio_data_process(void) {
+	size_t avail = rxhead >= rxtail ? (rxhead - rxtail) : (rxhead + rxtop - rxtail);
+	if (i2s_paused && (avail < AUDIO_SINK_PACKET_SIZE * 2)) {
+		return;
+	}
+
+	if (receive_ena || i2s_paused) {
+		int32_t* i2s_buf = I2S_GetBuffer();
+		if (receive_ena) --receive_ena;
+		uint32_t i2s_buffer_ofs = 0;
+
+
+		if (avail < 192) {
+			xprintf("-%d %d %d %d;\r\n", avail, rxhead, rxtail, rxtop);
+		} if (avail > sizeof(audio_sink_buffer) - 192) {
+			xprintf("+%d %d %d %d;\r\n", avail, rxhead, rxtail, rxtop);
+			rxtail += 192;
+			if (rxtail >= rxtop) {
+				rxtail -= rxtop;
+			}
+		} else {
+		}
+
+		for (size_t i = 0; i < MIN(192,avail)/2; i++) {
+			uint32_t samp16 = ((uint16_t*)audio_sink_buffer)[rxtail/2];
+			rxtail += 2;
+			if (rxtail >= rxtop) {
+				rxtail = 0;
+			}
+			
+			i2s_buf[i2s_buffer_ofs + ((i&1) ? -1 : 1)] = samp16 << 16; // swap left & right
+
+			i2s_buffer_ofs++;
+			
+			if (i2s_buffer_ofs >= AUDIO_BUFFER_SIZE) {
+				i2s_buffer_ofs = 0;
+			}
+		}
+		if (i2s_paused) {
+			if (--i2s_paused == 0) {
+				I2S_Start();
+			}
+		}
+	}	
+}
+
+static void dma_cb(void) {
+	receive_ena += 1;
+}
+
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 static void audio_data_tx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	(void)ep;
+	static size_t tosend = AUDIO_SOURCE_PACKET_SIZE - SOURCE_SAMPLE_SIZE;
+
 	if (altsetting_source) {
 		// shift out current packet: this copies audio_out_buf into EP fifo
-		uint16_t len = usbd_ep_write_packet(usbd_dev, AUDIO_SOURCE_EP, audio_out_buf, AUDIO_SOURCE_PACKET_SIZE);
+		uint16_t len = usbd_ep_write_packet(usbd_dev, AUDIO_SOURCE_EP, audio_out_buf, tosend);
+		(void)len; // stfu
 
 		// prepare the new one
-		size_t avail = sizeof(audio_out_buf);
+		tosend = 48 * SOURCE_SAMPLE_SIZE;
+
+		if (sink_buffer_fullness > AUDIO_SINK_PACKET_SIZE*2) {
+			if (npackets % 16 == 0) {
+				// too much, one sample less perhaps
+				tosend -= SOURCE_SAMPLE_SIZE;
+			}
+		}
+#if defined(WITH_MICROPHONE)
+		size_t tocopy = tosend;
 		size_t tail = 0;
-		for(;avail > 0;) {
-			if (sample_ofs + avail < sizeof(sample)) {
-				memcpy(audio_out_buf + tail, sample + sample_ofs, avail);
-				sample_ofs += avail;
-				avail = 0;
+		for(;tocopy > 0;) {
+			if (sample_ofs + tocopy < sizeof(sample)) {
+				memcpy(audio_out_buf + tail, sample + sample_ofs, tocopy);
+				sample_ofs += tocopy;
+				tocopy = 0;
 			} else {
 				tail = sizeof(sample) - sample_ofs;
 				memcpy(audio_out_buf, sample + sample_ofs, tail);
 				sample_ofs = 0;
-				avail -= tail;
+				tocopy -= tail;
 			}
 		}
-		xputchar('>');
-		//xprintf(">%d o=%d;", len, sample_ofs);
+#endif
+		xprintf(">%d>", tosend);
 	}
 }
-
+#endif
 
 static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t value) {
 	xprintf("set_altsetting_cb: iface=%d value=%d\r\n", index, value);
 	if (index == AUDIO_SOURCE_IFACE) {
 		if (value == 1) {
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 			xprintf("Starting to send data");
 			usbd_ep_write_packet(usbd_dev, AUDIO_SOURCE_EP, NULL, 0);
+#endif
 		}
 	} else if (index == AUDIO_SINK_IFACE) {
 		if (value == 1) {
 			start_milli = Clock_Get();
 			npackets = 0;
+			rxtop = sizeof(audio_sink_buffer);
+			rxhead = rxtail = 0;
+			receive_ena = 0;
+			i2s_paused = 1;
+			I2S_SetCallback(dma_cb);
+			//I2S_Start();
+			#if defined(FEEDBACK_EXPLICIT)
+			uint32_t fbw = 48<<14;
+			usbd_ep_write_packet(usbd_dev, AUDIO_SYNCH_EP, &fbw, 3);
+			#endif
 		} else {
+			I2S_SetCallback(NULL);
+			I2S_Pause();
+			i2s_paused = 0;
 		}
 	}
 }
@@ -776,50 +1022,62 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 #endif
 
 	usbd_ep_setup(usbd_dev, AUDIO_SINK_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_SINK_PACKET_SIZE, audio_data_rx_cb);
+#if defined(FEEDBACK_EXPLICIT)
+	usbd_ep_setup(usbd_dev, AUDIO_SYNCH_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, 3, audio_synch_tx_cb);
+#endif
+#if defined(FEEDBACK_IMPLICIT) || defined(WITH_MICROPHONE)
 	usbd_ep_setup(usbd_dev, AUDIO_SOURCE_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_SOURCE_PACKET_SIZE, audio_data_tx_cb);
-
+#endif
 	usbd_register_control_callback(usbd_dev,
 				USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE, //type
 				USB_REQ_TYPE_TYPE | USB_REQ_TYPE_RECIPIENT,  //mask
 				common_control_request);
 }
 
-static usbd_device *usbd_dev;
-
 static void fill_buffer(void) {
 	sample_ofs = 0;
 	for (uint32_t i = 0; i < sizeof(sample); i += 2) {
-		((uint16_t*)sample)[i/2] = 128*(i - sizeof(sample)/2);
+		//((uint16_t*)sample)[i/2] = 128*(i - sizeof(sample)/2);
+		((uint16_t*)sample)[i/2] = 0;
+	}
+	for (uint32_t i = 0; i < sizeof(audio_out_buf); i++) {
+		audio_out_buf[i] = 0;
 	}
 	sample_ofs = 0;
 }
 
-static uint32_t last = 0;
-
 void USBCMP_Poll(void) {
-	usbd_poll(usbd_dev);
-	// if (altsetting_sink) {
-	// 	xputchar('.');
-	// }
+	usbd_poll(device);
+	audio_data_process();
 }
 
 void USBCMP_Setup(void)
 {
 	// rcc_clock_setup_hse_3v3(&rcc_hse_8mhz_3v3[RCC_CLOCK_3V3_120MHZ]);
-
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_OTGFS);
+
+	// nvic_enable_irq(NVIC_OTG_FS_IRQ);
+	// xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
+	//OTG_FS_GINTMSK = 0;
+
+	feedback_timer_start();
 
 	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE,
 			GPIO9 | GPIO11 | GPIO12);
 	gpio_set_af(GPIOA, GPIO_AF10, GPIO9 | GPIO11 | GPIO12);
 
-	usbd_dev = usbd_init(&otgfs_usb_driver, &dev, &config,
+	device = usbd_init(&otgfs_usb_driver, &dev, &config,
 			usb_strings, sizeof(usb_strings)/sizeof(usb_strings[0]),
 			usbd_control_buffer, sizeof(usbd_control_buffer));
 
-	usbd_register_set_altsetting_callback(usbd_dev, set_altsetting_cb);
-	usbd_register_set_config_callback(usbd_dev, cdcacm_set_config);
+	nvic_enable_irq(NVIC_OTG_FS_IRQ);
+	xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
+	OTG_FS_GINTMSK = OTG_GINTMSK_IISOIXFRM;
+	xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
+
+	usbd_register_set_altsetting_callback(device, set_altsetting_cb);
+	usbd_register_set_config_callback(device, cdcacm_set_config);
 
 	fill_buffer();
 

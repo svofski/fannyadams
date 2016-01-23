@@ -8,6 +8,7 @@
 #include <libopencm3/cm3/nvic.h>
 
 #include "power.h"
+#include "xprintf.h"
 
 // PUSH is A.10
 // PULL is B.1
