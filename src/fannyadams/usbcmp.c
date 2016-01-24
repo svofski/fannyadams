@@ -99,9 +99,7 @@ static const char * usb_strings[] = {
 #define AUDIO_SOURCE_VOLUME_CONTROL		5
 #define AUDIO_SOURCE_TERMINAL_OUTPUT 	6 	// USB Stream
 
-//static uint8_t audio_sink_buffer[AUDIO_SINK_PACKET_SIZE];
-static uint8_t audio_sink_buffer[192 * 12];
-//static volatile uint32_t i2s_buffer_ofs;
+static uint8_t audio_sink_buffer[192 * 8];
 
 static uint16_t sample_ofs;
 static uint8_t sample[480];
@@ -109,6 +107,20 @@ static uint8_t sample[480];
 static uint8_t audio_out_buf[AUDIO_SOURCE_PACKET_SIZE];
 static usbd_device *device;
 
+volatile uint32_t npackets_fb;
+volatile uint32_t nints;
+static volatile uint32_t flag;
+static volatile uint32_t pid;
+static volatile uint32_t flush_count;
+
+static uint32_t npackets;
+static volatile uint32_t receive_ena;
+static volatile uint32_t i2s_paused;
+static volatile uint32_t rxhead, rxtail, rxtop = sizeof(audio_sink_buffer);
+static volatile uint16_t fb_timer_last;
+
+static volatile uint32_t feedback_value = 48 << 14;
+static volatile uint32_t sink_buffer_fullness;
 
 #ifdef WITH_CDCACM
 static char cdc_buf[64];
@@ -459,7 +471,6 @@ static const struct usb_endpoint_descriptor audio_sink_endp[] = {{
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
 	.bEndpointAddress = AUDIO_SINK_EP,
-	//.bmAttributes = USB_ENDPOINT_ATTR_ISO_ADAPTIVE, //USB_ENDPOINT_ATTR_ISO_ASYNC,
 #if defined(FEEDBACK_EXPLICIT) || defined(FEEDBACK_IMPLICIT)
 	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC,
 #else
@@ -484,7 +495,9 @@ static const struct usb_endpoint_descriptor audio_sink_endp[] = {{
 	.bmAttributes = USB_ENDPOINT_ATTR_ISOCHRONOUS,
 	.wMaxPacketSize = 3,
 	.bInterval = 1,
-	.bRefresh = 0, // powers of 2: from 1 = 2ms to 9 = 512ms
+	.bRefresh = 4, // Explicit feedback value update rate.  
+				   // Specified in powers of 2: from 1 = 2ms to 9 = 512ms
+				   // Windows seems to hate values less than 4.
 	.bSynchAddress = 0,
 	}
 #endif
@@ -496,8 +509,10 @@ static const struct usb_endpoint_descriptor audio_source_endp[] = {{
 	.bDescriptorType = USB_DT_ENDPOINT,
 	.bEndpointAddress = AUDIO_SOURCE_EP,
 #if defined(WITH_MICROPHONE)
+	// Microphone audio source
 	.bmAttributes = USB_ENDPOINT_ATTR_ISO_SYNC,
-#else // implicit
+#else 
+	// Implicit feedback endpoint
 	.bmAttributes = USB_ENDPOINT_ATTR_ISO_ASYNC | USB_ENDPOINT_USAGE_IMPLICIT_FEEDBACK,
 #endif
 	.wMaxPacketSize = AUDIO_SOURCE_PACKET_SIZE,
@@ -575,7 +590,10 @@ static const struct usb_interface_descriptor audio_streaming_source_iface[] = {
 #endif
 
 static uint8_t altsetting_sink = 0;
+
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 static uint8_t altsetting_source = 0;
+#endif
 
 static const struct usb_interface ifaces[] = {
 #ifdef WITH_CDCACM
@@ -606,7 +624,6 @@ static const struct usb_interface ifaces[] = {
 #endif
 	};
 
-
 static const struct usb_config_descriptor config = {
 	.bLength = USB_DT_CONFIGURATION_SIZE,
 	.bDescriptorType = USB_DT_CONFIGURATION,
@@ -623,10 +640,6 @@ static const struct usb_config_descriptor config = {
 
 /* Buffer to be used for control requests. Needs to be large to fit all those descriptors. */
 static uint8_t usbd_control_buffer[256];
-
-// static void req_set_complete_cb(usbd_device *usbd_dev, struct usb_setup_data *req) {
-// 	xprintf("req_set_complete_cb - not sure what now!\n\r");
-// }
 
 static int common_control_request(usbd_device *usbd_dev,
 	struct usb_setup_data *req, uint8_t **buf, uint16_t *len,
@@ -748,28 +761,23 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 }
 #endif
 
-static uint32_t start_milli;
-static uint32_t npackets;
-static volatile uint32_t receive_ena;
-static volatile uint32_t i2s_paused;
-static volatile uint32_t rxhead, rxtail, rxtop = sizeof(audio_sink_buffer);
-static volatile uint16_t fb_timer_last;
+// "The SOF pulse signal is also internally connected to the TIM2 input trigger, 
+// so that the input capture feature, the output compare feature and the timer
+// can be triggered by the SOF pulse. The TIM2 connection is enabled
+// through the ITR1_RMP bits of the TIM2 option register (TIM2_OR)."
 
-static volatile uint32_t feedback_value = 48 << 14;
-static volatile uint32_t sink_buffer_fullness;
+// Connect SOF to TIM2 trigger. Capture timer value on SOF and reset/restart
+// the timer. This happens without generating interrupts. The captured value
+// is polled in send_explicit_fb().
 
-#define PRESCALER2 (168e6/(4800e3/2)/2) // == 2400 counts per frame
-
-// The SOF pulse signal is also internally
-// connected to the TIM2 input trigger, so that the input capture feature, the output compare
-// feature and the timer can be triggered by the SOF pulse. The TIM2 connection is enabled
-// through the ITR1_RMP bits of the TIM2 option register (TIM2_OR).
-// The end of periodic frame interrupt (GINTSTS/EOPF) is used to notify 
+static void feedback_timer_stop(void) {
+	timer_disable_counter(TIM2);
+}
 
 static void feedback_timer_start(void) {
 	rcc_periph_clock_enable(RCC_TIM2);
+	feedback_timer_stop();
     timer_set_mode(TIM2, TIM_CR1_CKD_CK_INT, TIM_CR1_CMS_EDGE, TIM_CR1_DIR_UP);
-    //timer_set_prescaler(TIM2, PRESCALER2);//175); 175 for 480 counts per frame
     timer_set_prescaler(TIM2, 0);
 
     timer_ic_disable(TIM2, TIM_IC1);  						// channel must be disabled first
@@ -787,50 +795,39 @@ static void feedback_timer_start(void) {
     timer_enable_counter(TIM2);
 }
 
-static void feedback_timer_stop(void) {
-	timer_disable_counter(TIM2);
-}
-
 static void send_explicit_fb(usbd_device *usbd_dev, size_t fullness) 
 {
-	uint32_t tim2 = TIM_CCR1(TIM2);// - 12 seems to be a good correction		
-	if (fullness < sizeof(audio_sink_buffer)/4) {
+	// I'm not sure why, but the measured time between SOF events seems to be
+	// slightly larger than the period at which DMA consumes samples.
+	// Here's a bit of correction based on buffer load.
+	uint32_t tim2 = TIM_CCR1(TIM2);
+	if (fullness < AUDIO_SINK_PACKET_SIZE * 2) {
 		tim2 += -8;
-	} else if (fullness < sizeof(audio_sink_buffer)/2) {
-		tim2 += -64;
+	} else if (fullness < AUDIO_SINK_PACKET_SIZE * 3) {
+		tim2 += -16;
 	} else {
-		tim2 += -162;
+		tim2 += -32;
 	}
 	feedback_value = (tim2 << 14) / 1750;
 #if defined(FEEDBACK_EXPLICIT)
-	usbd_ep_write_packet(usbd_dev, AUDIO_SYNCH_EP, &feedback_value, 3);
+	usbd_ep_write_packet(usbd_dev, AUDIO_SYNCH_EP, (uint32_t*)&feedback_value, 3);
 #else
 	STFU(usbd_dev);
 #endif
 }
 
-volatile uint32_t npackets_fb;
-volatile uint32_t nints;
-volatile uint32_t msk, sts;
-volatile uint32_t* gintmsk = &OTG_FS_GINTMSK;
-volatile uint32_t* gintsts = &OTG_FS_GINTSTS;
-
-volatile uint32_t flag;
-volatile uint32_t pid;
-volatile uint32_t flush_count;
-
-static void flush_synch_ep() {
+static void flush_synch_ep(void) {
 	flush_count++;
+#if defined(FEEDBACK_EXPLICIT)
 	OTG_FS_GRSTCTL |= OTG_GRSTCTL_TXFFLSH | ((AUDIO_SYNCH_EP & 0177) << 6);
 
 	while((OTG_FS_GRSTCTL & OTG_GRSTCTL_TXFFLSH) == OTG_GRSTCTL_TXFFLSH);
+#endif
 }
 
 #define DSTS_FNSOF_ODD_MASK (1 << 8)
 
-void incomplete(void) {
-	OTG_FS_GINTSTS |= OTG_GINTSTS_IISOIXFR; // clear interrupt flag
-
+static void incomplete(void) {
 	pid = OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK;
 	if (flag && --flag == 0) {
 		flush_synch_ep();
@@ -838,13 +835,21 @@ void incomplete(void) {
 	nints++;
 }
 
-
 #if defined(FEEDBACK_EXPLICIT)
 static void audio_synch_tx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
-	send_explicit_fb(usbd_dev, sink_buffer_fullness);
-	npackets_fb++;
-	//xputchar('#');
+	STFU(ep);
+	// TODO: when the output is restarted, a callback may arrive
+	// before the feedback loop is initiated from audio_data_rx_cb()
+	if (npackets < 64) {
+		xputchar('~');
+		return;
+	}
+	if ((OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK) == pid) {
+		send_explicit_fb(usbd_dev, sink_buffer_fullness);
+		npackets_fb++;
+		flag = 1;
+	}
 }
 #endif
 
@@ -871,13 +876,15 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 
 		sink_buffer_fullness = (rxhead >= rxtail) ? (rxhead - rxtail) : (rxhead + rxtop - rxtail);
 		
-		if ((OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK) == pid) {
+		// Initiate feedback
+		if (((npackets == 64) && (OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK) == pid) ||
+			((npackets == 65) && (OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK) == pid)) {
+			xputchar('*');
 			send_explicit_fb(usbd_dev, sink_buffer_fullness);
 			flag = 1;
 		}
 
 		xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
-		//xprintf("|%d|", read);
 		if (npackets % 20 == 0) {
 			xprintf("fb=%d.%03d |%d| ->%d f%d\r\n", 
 					feedback_value >> 14, ((feedback_value>>4) & 0x3ff)*1000/1024, sink_buffer_fullness, 
@@ -885,46 +892,6 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 		}
 	}
 }
-
-static void sof_cb(void) {
-	if (altsetting_sink) {
-		npackets++;
-
-		int avail = sizeof(audio_sink_buffer) - rxhead;
-		int read = 0;
-		for(;;)	{
-			int len = usbd_ep_read_packet(device, AUDIO_SINK_EP, audio_sink_buffer + rxhead, avail);
-			if (len == 0) {
-				break;
-			}
-			read += len;
-			rxhead += len;
-			if (rxhead == sizeof(audio_sink_buffer)) {
-				rxhead = 0;
-			}
-		}
-
-		sink_buffer_fullness = (rxhead >= rxtail) ? (rxhead - rxtail) : (rxhead + rxtop - rxtail);
-		
-		// if (flush_incomplete) {
-		// 	flush_incomplete = 0;
-		// 	/* Flush all tx/rx fifos */
-		// 	OTG_FS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | OTG_GRSTCTL_TXFNUM_ALL;
-		// 			      //| OTG_GRSTCTL_RXFFLSH;
-		// }
-		send_explicit_fb(device, sink_buffer_fullness);
-		//usbd_ep_write_packet(usbd_dev, AUDIO_SYNCH_EP, 0, 0);
-
-		xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
-		//xprintf("|%d|", read);
-		if (npackets % 20 == 0) {
-			xprintf("fb=%d.%03d |%d| ->%d x%d\r\n", 
-					feedback_value >> 14, ((feedback_value>>4) & 0x3ff)*1000/1024, sink_buffer_fullness, 
-					npackets_fb, nints);
-		}
-	}
-}
-
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
@@ -1021,6 +988,7 @@ static void audio_data_tx_cb(usbd_device *usbd_dev, uint8_t ep)
 #endif
 
 static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t value) {
+	STFU(usbd_dev);
 	xprintf("set_altsetting_cb: iface=%d value=%d\r\n", index, value);
 	if (index == AUDIO_SOURCE_IFACE) {
 		if (value == 1) {
@@ -1031,19 +999,17 @@ static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t va
 		}
 	} else if (index == AUDIO_SINK_IFACE) {
 		if (value == 1) {
-			start_milli = Clock_Get();
 			npackets = 0;
+			npackets_fb = 0;
 			rxtop = sizeof(audio_sink_buffer);
 			rxhead = rxtail = 0;
 			receive_ena = 0;
 			i2s_paused = 1;
+			pid = OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK;
 			I2S_SetCallback(dma_cb);
-			//I2S_Start();
-			#if defined(FEEDBACK_EXPLICIT)
-			uint32_t fbw = 48<<14;
-			usbd_ep_write_packet(usbd_dev, AUDIO_SYNCH_EP, &fbw, 3);
-			#endif
+			flush_synch_ep();
 		} else {
+			flush_synch_ep();
 			I2S_SetCallback(NULL);
 			I2S_Pause();
 			i2s_paused = 0;
@@ -1051,7 +1017,7 @@ static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t va
 	}
 }
 
-static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
+static void set_config_cb(usbd_device *usbd_dev, uint16_t wValue)
 {
 	(void)wValue;
 
@@ -1074,15 +1040,16 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 				USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE, //type
 				USB_REQ_TYPE_TYPE | USB_REQ_TYPE_RECIPIENT,  //mask
 				common_control_request);
-
-//	usbd_register_sof_callback(usbd_dev, sof_cb);
 }
 
 static void fill_buffer(void) {
 	sample_ofs = 0;
 	for (uint32_t i = 0; i < sizeof(sample); i += 2) {
-		//((uint16_t*)sample)[i/2] = 128*(i - sizeof(sample)/2);
+#ifdef WITH_MICROPHONE
+		((uint16_t*)sample)[i/2] = 128*(i - sizeof(sample)/2);
+#else
 		((uint16_t*)sample)[i/2] = 0;
+#endif
 	}
 	for (uint32_t i = 0; i < sizeof(audio_out_buf); i++) {
 		audio_out_buf[i] = 0;
@@ -1097,7 +1064,6 @@ void USBCMP_Poll(void) {
 
 void USBCMP_Setup(void)
 {
-	// rcc_clock_setup_hse_3v3(&rcc_hse_8mhz_3v3[RCC_CLOCK_3V3_120MHZ]);
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_OTGFS);
 
@@ -1111,18 +1077,31 @@ void USBCMP_Setup(void)
 			usb_strings, sizeof(usb_strings)/sizeof(usb_strings[0]),
 			usbd_control_buffer, sizeof(usbd_control_buffer));
 
-	// nvic_enable_irq(NVIC_OTG_FS_IRQ);
-	// xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
-	// OTG_FS_GINTMSK = OTG_GINTMSK_IISOIXFRM;
-	// xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
-
 	usbd_register_set_altsetting_callback(device, set_altsetting_cb);
-	usbd_register_set_config_callback(device, cdcacm_set_config);
+	usbd_register_set_config_callback(device, set_config_cb);
 
+#if defined(FEEDBACK_EXPLICIT)
 	usbd_register_incomplete_callback(device, incomplete);
+#endif
 
 	fill_buffer();
 
-	xprintf("sink iface=%d source=%d\r\n", AUDIO_SINK_IFACE, AUDIO_SOURCE_IFACE);
-	xprintf("Packet length=%d samples; audio buffer length=%d samples\r\n", AUDIO_SINK_PACKET_SIZE/2, AUDIO_BUFFER_SIZE);
+	xprintf("USBCMP: sink iface=%d source=%d\r\n", AUDIO_SINK_IFACE, AUDIO_SOURCE_IFACE);
+	xprintf("USBCMP: Sink EP %02x |%d| Feedback type: ", AUDIO_SINK_EP, AUDIO_SINK_PACKET_SIZE);
+#if defined(FEEDBACK_IMPLICIT)
+	xprintf("IMPLICIT via Source endpoint %02x |%d| ", AUDIO_SOURCE_EP, AUDIO_SOURCE_PACKET_SIZE);
+#else
+	xprintf("EXPLICIT via Feedback endpoint %02x ", AUDIO_SYNCH_EP);
+#endif
+#if defined(WITH_MICROPHONE)
+	xprintf("Microphone endpoint %02x |%d|", AUDIO_SOURCE_EP, AUDIO_SOURCE_PACKET_SIZE);
+#else
+	xprintf("No microphone");
+#endif
+	xprintf("\r\n");
+	xprintf("USBCMP: buffer sizes: sink=|%d| ", sizeof(audio_sink_buffer));
+#if defined(FEEDBACK_IMPLICIT) || defined(WITH_MICROPHONE)
+	xprintf("source=|%d|", sizeof(audio_out_buf));
+#endif
+	xprintf("\r\n");
 }
