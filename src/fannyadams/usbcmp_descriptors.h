@@ -4,6 +4,9 @@
 #define FEEDBACK_EXPLICIT
 //#define FEEDBACK_IMPLICIT
 
+#define XSTR(x) STR(x)
+#define STR(x) #x
+
 #define SOURCE_CHANNELS 				1
 #if SOURCE_CHANNELS == 1
   #define SOURCE_CHANNEL_MAPPING (USB_AUDIO_CHAN_MONO)
@@ -14,32 +17,47 @@
 #endif
 #define SINK_SAMPLE_SIZE 				4 		// Stereo: 16 bits * 2
 
+#define IFSTART 							(-1)
+#define EPSTART 							0
 
 #ifdef WITH_CDCACM
-	#define CDCACM_COMM_INTERFACE			0
-	#define CDCACM_DATA_INTERFACE			1
-	#define AUDIO_CONTROL_IFACE 			2
-	#define AUDIO_SINK_IFACE 				3
+	#define CDCACM_COMM_INTERFACE			((IFSTART) + 1)
+	#define CDCACM_DATA_INTERFACE			((IFSTART) + 2)
+	#define IFCDC							(CDCACM_DATA_INTERFACE)
 
-	#define CDC_COMM_EP 					0x83
-	#define CDC_BULK_IN_EP 					0x01
-	#define CDC_BULK_OUT_EP 				0x82
-	#define AUDIO_SINK_EP                   0x02
+	#define CDC_BULK_IN_EP 					((EPSTART) + 1)
+	#define CDC_BULK_OUT_EP 				(0200 | ((EPSTART) + 2))
+	#define CDC_COMM_EP 					(0200 | ((EPSTART) + 3))
+	#define EPCDC	 						(0177 & CDC_COMM_EP)
 #else
-	#define AUDIO_IFACE_START 				0
-	#define AUDIO_EP_START 					1
-	#define AUDIO_CONTROL_IFACE 			(AUDIO_IFACE_START)
-	#define AUDIO_SINK_IFACE 				(AUDIO_CONTROL_IFACE+1)
-	#define AUDIO_SOURCE_IFACE 				(AUDIO_SINK_IFACE+1)
+	#define IFCDC IFSTART
+	#define EPCDC EPSTART
+#endif
 
-	#define AUDIO_SINK_EP                   (AUDIO_EP_START)
-#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
-	#define AUDIO_SOURCE_EP 				(0200 | (AUDIO_SINK_EP + 1))
-#endif
+#define AUDIO_CONTROL_IFACE 				((IFCDC) + 1)
+#define AUDIO_SINK_IFACE 					((IFCDC) + 2)
+#define AUDIO_SOURCE_IFACE 					((IFCDC) + 3)
+#define IFAUDIO								AUDIO_SOURCE_IFACE
+
+#define AUDIO_SINK_EP                   	((EPCDC) + 1)
+#define EPASINK	 							(0177 & AUDIO_SINK_EP)
+
 #if defined(FEEDBACK_EXPLICIT)
-	#define AUDIO_SYNCH_EP 					(0200 | (AUDIO_SINK_EP + 2))
+	#define AUDIO_SYNCH_EP 					(0200 | ((EPASINK) + 1))
+	#define EPSYNCH							(0177 & AUDIO_SYNCH_EP)
+#else
+	#define EPSYNCH 						EPASINK
 #endif
+
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
+	#define AUDIO_SOURCE_EP 				(0200 | ((EPSYNCH) + 1))
+	#define EPSOURCE						(0177 & AUDIO_SOURCE_EP)
+#else
+	#define EPSOURCE 						EPSYNCH
 #endif
+
+// Next IFACE starts with IFAUDIO + 1
+// Next EP starts with EPSOURCE + 1
 
 // Packet sizes must reserve space for one extra sample for rate adjustments
 #define AUDIO_SINK_PACKET_SIZE 				(USB_AUDIO_PACKET_SIZE(48000,2,16) + SINK_SAMPLE_SIZE)

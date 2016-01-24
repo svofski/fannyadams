@@ -511,15 +511,24 @@ void USBCMP_Setup(void)
 
 	fill_buffer();
 
-	xprintf("USBCMP: sink iface=%d source=%d\r\n", AUDIO_SINK_IFACE, AUDIO_SOURCE_IFACE);
+	xprintf("USBCMP: Interfaces: Audio Control: %d Sink: %d ", AUDIO_CONTROL_IFACE, AUDIO_SINK_IFACE);
+#ifdef AUDIO_SOURCE_IFACE
+	xprintf("Source: %d ", AUDIO_SOURCE_IFACE);
+#endif
+	xprintf("\r\n");
+#ifdef WITH_CDCACM
+	xprintf("USBCMP: CDC Comm: %d (EP %02x) CDC Data: %d (EP %02x/%02x)\r\n", 
+		CDCACM_COMM_INTERFACE, CDC_COMM_EP,
+		CDCACM_DATA_INTERFACE, CDC_BULK_IN_EP, CDC_BULK_OUT_EP);
+#endif
 	xprintf("USBCMP: Sink EP %02x |%d| Feedback type: ", AUDIO_SINK_EP, AUDIO_SINK_PACKET_SIZE);
 #if defined(FEEDBACK_IMPLICIT)
-	xprintf("IMPLICIT via Source endpoint %02x |%d| ", AUDIO_SOURCE_EP, AUDIO_SOURCE_PACKET_SIZE);
+	xprintf("IMPLICIT via Source EP %02x |%d| ", AUDIO_SOURCE_EP, AUDIO_SOURCE_PACKET_SIZE);
 #else
-	xprintf("EXPLICIT via Feedback endpoint %02x ", AUDIO_SYNCH_EP);
+	xprintf("EXPLICIT via Feedback EP %02x ", AUDIO_SYNCH_EP);
 #endif
 #if defined(WITH_MICROPHONE)
-	xprintf("Microphone endpoint %02x |%d|", AUDIO_SOURCE_EP, AUDIO_SOURCE_PACKET_SIZE);
+	xprintf("Microphone EP %02x |%d|", AUDIO_SOURCE_EP, AUDIO_SOURCE_PACKET_SIZE);
 #else
 	xprintf("No microphone");
 #endif
