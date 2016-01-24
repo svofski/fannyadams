@@ -16,28 +16,28 @@
 // B.8 = LINEOUT connector (plugged = 0)
 // B.9 = PHONES connector (plugged = 1)
 void GPIO_Setup(void) {
-	rcc_periph_clock_enable(RCC_GPIOB);
-	rcc_periph_clock_enable(RCC_SYSCFG);
+    rcc_periph_clock_enable(RCC_GPIOB);
+    rcc_periph_clock_enable(RCC_SYSCFG);
 
-	gpio_mode_setup(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO8 | GPIO9);
-	
-	exti_select_source(EXTI8, GPIOB);
-	exti_set_trigger(EXTI8, EXTI_TRIGGER_BOTH);
-	exti_select_source(EXTI9, GPIOB);
-	exti_set_trigger(EXTI9, EXTI_TRIGGER_BOTH);
+    gpio_mode_setup(GPIOB, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO8 | GPIO9);
+    
+    exti_select_source(EXTI8, GPIOB);
+    exti_set_trigger(EXTI8, EXTI_TRIGGER_BOTH);
+    exti_select_source(EXTI9, GPIOB);
+    exti_set_trigger(EXTI9, EXTI_TRIGGER_BOTH);
 
-	exti_enable_request(EXTI8);
-	exti_enable_request(EXTI9);
-	nvic_enable_irq(NVIC_EXTI9_5_IRQ);
+    exti_enable_request(EXTI8);
+    exti_enable_request(EXTI9);
+    nvic_enable_irq(NVIC_EXTI9_5_IRQ);
 }
 
 int GPIO_IsOutputPlugged() {
-	return (GPIOB_IDR & GPIO8) == 0 || (GPIOB_IDR & GPIO9) != 0;
+    return (GPIOB_IDR & GPIO8) == 0 || (GPIOB_IDR & GPIO9) != 0;
 }
 
 void exti9_5_isr(void) {
-	uint16_t plugged = (GPIOB_IDR & GPIO8) == 0 || (GPIOB_IDR & GPIO9) != 0;
-	Event_Post((Event) {EventId: EVENT_OUTPUT_PLUG, Data:plugged});
-	exti_reset_request(EXTI8);
-	exti_reset_request(EXTI9);
+    uint16_t plugged = (GPIOB_IDR & GPIO8) == 0 || (GPIOB_IDR & GPIO9) != 0;
+    Event_Post((Event) {EventId: EVENT_OUTPUT_PLUG, Data:plugged});
+    exti_reset_request(EXTI8);
+    exti_reset_request(EXTI9);
 }

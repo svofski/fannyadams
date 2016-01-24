@@ -59,14 +59,14 @@ static const struct usb_endpoint_descriptor comm_endp[] = {{
 static const struct usb_endpoint_descriptor data_endp[] = {{
     .bLength = USB_DT_ENDPOINT_SIZE,
     .bDescriptorType = USB_DT_ENDPOINT,
-    .bEndpointAddress = CDC_BULK_IN_EP,
+    .bEndpointAddress = CDC_BULK_OUT_EP,
     .bmAttributes = USB_ENDPOINT_ATTR_BULK,
     .wMaxPacketSize = 64,
     .bInterval = 1,
 }, {
     .bLength = USB_DT_ENDPOINT_SIZE,
     .bDescriptorType = USB_DT_ENDPOINT,
-    .bEndpointAddress = CDC_BULK_OUT_EP,
+    .bEndpointAddress = CDC_BULK_IN_EP,
     .bmAttributes = USB_ENDPOINT_ATTR_BULK,
     .wMaxPacketSize = 64,
     .bInterval = 1,
@@ -139,10 +139,16 @@ static const struct usb_interface_descriptor data_iface[] = {{
 } };
 #endif // WITH_CDCACM
 
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
+#define IN_COLLECTION 2 // 1 stream sink + 1 stream source
+#else
+#define IN_COLLECTION 1 // 1 stream sink
+#endif
+
 // Class-specific AC Interface Descriptor
 static const struct {
     struct usb_audio_header_descriptor_head header;
-    struct usb_audio_header_descriptor_body header_body[2]; // baInterfaceNr collection (2 interfaces)
+    struct usb_audio_header_descriptor_body header_body[IN_COLLECTION]; 
     struct usb_audio_input_terminal_descriptor input_terminal;
     
     struct usb_audio_feature_unit_descriptor_head feature_unit_head;
@@ -162,17 +168,13 @@ static const struct {
 
 } __attribute__((packed)) audio_control_functional_descriptors = {
     .header = {
-        .bLength = sizeof(audio_control_functional_descriptors.header)  // header + interface nr size
+        .bLength = sizeof(audio_control_functional_descriptors.header)  // header + iface nr size
             + sizeof(audio_control_functional_descriptors.header_body),
         .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
         .bDescriptorSubtype = USB_AUDIO_TYPE_HEADER,
         .bcdADC = 0x0100,
-        .wTotalLength = sizeof(audio_control_functional_descriptors),   // total size with terminal descriptors
-#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
-        .binCollection = 2,                                             // 1 streaming in + 1 streaming out
-#else 
-        .binCollection = 1,                                             // 1 streaming out
-#endif
+        .wTotalLength = sizeof(audio_control_functional_descriptors),   //  size w/term descriptors
+        .binCollection = IN_COLLECTION,
     },
     .header_body = {
         {.baInterfaceNr = AUDIO_SINK_IFACE},    // sink streaming interface (speaker)

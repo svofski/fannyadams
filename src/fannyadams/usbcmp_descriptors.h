@@ -1,5 +1,6 @@
 #pragma once
 
+//#define WITH_CDCACM
 //#define WITH_MICROPHONE
 #define FEEDBACK_EXPLICIT
 //#define FEEDBACK_IMPLICIT
@@ -25,13 +26,16 @@
     #define CDCACM_DATA_INTERFACE           ((IFSTART) + 2)
     #define IFCDC                           (CDCACM_DATA_INTERFACE)
 
-    #define CDC_BULK_IN_EP                  ((EPSTART) + 1)
-    #define CDC_BULK_OUT_EP                 (0200 | ((EPSTART) + 2))
-    #define CDC_COMM_EP                     (0200 | ((EPSTART) + 3))
-    #define EPCDC                           (0177 & CDC_COMM_EP)
+    #define CDC_BULK_IN_EP                  (0200 | ((EPSTART) + 1)) 	// 0x81
+    #define CDC_BULK_OUT_EP                 ((EPSTART) + 1) 			// 0x01
+    #define CDC_COMM_EP                     (0200 | ((EPSTART) + 2)) 	// 0x82
+    #define EPCDC                           (0177 & CDC_BULK_OUT_EP)
+	#define IN_AEP 							(CDC_COMM_EP+1) 
+	#define OUT_AEP 						((CDC_BULK_OUT_EP) + 1)
 #else
-    #define IFCDC IFSTART
-    #define EPCDC EPSTART
+    #define IFCDC 							IFSTART
+    #define IN_AEP 							(0200 | (EPSTART + 1))
+    #define OUT_AEP 						(EPSTART + 1)
 #endif
 
 #define AUDIO_CONTROL_IFACE                 ((IFCDC) + 1)
@@ -39,21 +43,17 @@
 #define AUDIO_SOURCE_IFACE                  ((IFCDC) + 3)
 #define IFAUDIO                             AUDIO_SOURCE_IFACE
 
-#define AUDIO_SINK_EP                       ((EPCDC) + 1)
-#define EPASINK                             (0177 & AUDIO_SINK_EP)
+#define AUDIO_SINK_EP                       (OUT_AEP) 					// 0x01
 
 #if defined(FEEDBACK_EXPLICIT)
-    #define AUDIO_SYNCH_EP                  (0200 | ((EPASINK) + 1))
-    #define EPSYNCH                         (0177 & AUDIO_SYNCH_EP)
+    #define AUDIO_SYNCH_EP                  (IN_AEP) 					// 0x81
+    #define IN_SRC                         	(AUDIO_SYNCH_EP + 1)
 #else
-    #define EPSYNCH                         EPASINK
+    #define IN_SRC 							IN_AEP
 #endif
 
 #if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
-    #define AUDIO_SOURCE_EP                 (0200 | ((EPSYNCH) + 1))
-    #define EPSOURCE                        (0177 & AUDIO_SOURCE_EP)
-#else
-    #define EPSOURCE                        EPSYNCH
+    #define AUDIO_SOURCE_EP                 (IN_SRC) 					// 0x82
 #endif
 
 // Next IFACE starts with IFAUDIO + 1

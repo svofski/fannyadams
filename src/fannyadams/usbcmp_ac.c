@@ -29,7 +29,8 @@ int ac_control_request(usbd_device *usbd_dev,
 
     switch (req->bRequest) {
     case USB_AUDIO_REQ_GET_CUR:
-        // Get current terminal setting: Value = 0x200 = Control Selector; Index = 0x201 Terminal ID and Interface
+        // Get current terminal setting: 
+        // Value = 0x200 = Control Selector; Index = 0x201 Terminal ID and Interface
         {
             xprintf("USB_AUDIO_REQ_GET_CUR\r\n");
             if (iface == AUDIO_CONTROL_IFACE && terminal == AUDIO_VOLUME_CONTROL_ID) {

@@ -61,15 +61,18 @@ int main(void)
                 case 'a':   Power_SetPeriod(Power_GetPeriod() - 10); break;
                 case 's':   Power_SetPeriod(Power_GetPeriod() + 10); break;
             }
-            xprintf("ADC3: %d %d %d  Period: %d Factor: %d \n\r", ADC3_BUFFER[0], ADC3_BUFFER[1], ADC3_BUFFER[2],
+            xprintf("ADC3: %d %d %d  Period: %d Factor: %d \n\r", 
+                    ADC3_BUFFER[0], ADC3_BUFFER[1], ADC3_BUFFER[2],
                     Power_GetPeriod(), Power_GetFactor());
-            xprintf("GPIOB=%04x %d %d\n\r", GPIOB_IDR, (GPIOB_IDR & GPIO8) != 0, (GPIOB_IDR & GPIO9) == 0);
+            xprintf("GPIOB=%04x %d %d\n\r", 
+                    GPIOB_IDR, (GPIOB_IDR & GPIO8) != 0, (GPIOB_IDR & GPIO9) == 0);
         }
         for (;Event_QueueLength() > 0;) {
             Event *ev = Event_Get();
             switch (ev->EventId) {
                 case EVENT_OUTPUT_PLUG:
-                    //xprintf("Output plug state: @%d %s\n", ev->Timestamp, ev->Data ? "PLUGGED" : "UNPLUGGED");
+                    //xprintf("Output plug state: @%d %s\n", 
+                    //  ev->Timestamp, ev->Data ? "PLUGGED" : "UNPLUGGED");
                     //Event_Post_Delayed(100, (Event){EventId: POWER_SWITCH, Data: ev->Data});
                     Clock_Debounce(DEBOUNCE_POWER, 500);
                     break;

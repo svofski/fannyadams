@@ -1,6 +1,9 @@
 #include <inttypes.h>
+#include <stdlib.h>
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/usb/cdc.h>
+
+#include "usbcmp_descriptors.h"
 #include "usbcmp_cdc.h"
 
 #ifdef WITH_CDCACM
@@ -38,10 +41,13 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
     (void)ep;
 
-    int len = usbd_ep_read_packet(usbd_dev, CDC_BULK_IN_EP, cdc_buf, 64);
+    size_t len = usbd_ep_read_packet(usbd_dev, CDC_BULK_OUT_EP, cdc_buf, sizeof(cdc_buf) - 1);
 
     if (len) {
-        while (usbd_ep_write_packet(usbd_dev, CDC_BULK_OUT_EP, cdc_buf, len) == 0);
+        size_t wrlen = usbd_ep_write_packet(usbd_dev, CDC_BULK_IN_EP, cdc_buf, len);
+        if (wrlen == 0) {
+            // error!
+        }
     }
 }
 #endif
@@ -52,8 +58,8 @@ void cdc_set_config(usbd_device *usbd_dev, uint16_t wValue)
     (void)wValue;
 
 #ifdef WITH_CDCACM
-    usbd_ep_setup(usbd_dev, CDC_BULK_IN_EP, USB_ENDPOINT_ATTR_BULK, 64, cdcacm_data_rx_cb);
-    usbd_ep_setup(usbd_dev, CDC_BULK_OUT_EP, USB_ENDPOINT_ATTR_BULK, 64, NULL);
+    usbd_ep_setup(usbd_dev, CDC_BULK_OUT_EP, USB_ENDPOINT_ATTR_BULK, 64, cdcacm_data_rx_cb);
+    usbd_ep_setup(usbd_dev, CDC_BULK_IN_EP, USB_ENDPOINT_ATTR_BULK, 64, NULL);
     usbd_ep_setup(usbd_dev, CDC_COMM_EP, USB_ENDPOINT_ATTR_INTERRUPT, 16, NULL);
 #endif
 }
