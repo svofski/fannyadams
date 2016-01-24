@@ -791,13 +791,15 @@ static void feedback_timer_stop(void) {
 	timer_disable_counter(TIM2);
 }
 
-static void send_explicit_fb(usbd_device *usbd_dev, size_t avail) 
+static void send_explicit_fb(usbd_device *usbd_dev, size_t fullness) 
 {
 	uint32_t tim2 = TIM_CCR1(TIM2);// - 12 seems to be a good correction		
-	if (avail < sizeof(audio_sink_buffer)/3) {
+	if (fullness < sizeof(audio_sink_buffer)/4) {
 		tim2 += -8;
+	} else if (fullness < sizeof(audio_sink_buffer)/2) {
+		tim2 += -64;
 	} else {
-		tim2 += -20;
+		tim2 += -162;
 	}
 	feedback_value = (tim2 << 14) / 1750;
 #if defined(FEEDBACK_EXPLICIT)
@@ -812,26 +814,30 @@ volatile uint32_t nints;
 volatile uint32_t msk, sts;
 volatile uint32_t* gintmsk = &OTG_FS_GINTMSK;
 volatile uint32_t* gintsts = &OTG_FS_GINTSTS;
-volatile uint32_t flush_incomplete;
+
+volatile uint32_t flag;
+volatile uint32_t pid;
+volatile uint32_t flush_count;
 
 static void flush_synch_ep() {
-	OTG_FS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | ((AUDIO_SYNCH_EP & 0177) << 6); // -- this works as in makes the packets never reach the target
+	flush_count++;
+	OTG_FS_GRSTCTL |= OTG_GRSTCTL_TXFFLSH | ((AUDIO_SYNCH_EP & 0177) << 6);
 
 	while((OTG_FS_GRSTCTL & OTG_GRSTCTL_TXFFLSH) == OTG_GRSTCTL_TXFFLSH);
 }
 
-void otg_fs_isr(void) {
+#define DSTS_FNSOF_ODD_MASK (1 << 8)
+
+void incomplete(void) {
 	OTG_FS_GINTSTS |= OTG_GINTSTS_IISOIXFR; // clear interrupt flag
-	flush_incomplete++;
 
-	//flush_synch_ep();
-	
-	// OTG_FS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | ((AUDIO_SYNCH_EP & 0177) << 6); // -- this works as in makes the packets never reach the target
-
-	// while((OTG_FS_GRSTCTL & OTG_GRSTCTL_TXFFLSH) == OTG_GRSTCTL_TXFFLSH);
-
+	pid = OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK;
+	if (flag && --flag == 0) {
+		flush_synch_ep();
+	}
 	nints++;
 }
+
 
 #if defined(FEEDBACK_EXPLICIT)
 static void audio_synch_tx_cb(usbd_device *usbd_dev, uint8_t ep)
@@ -865,13 +871,48 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 
 		sink_buffer_fullness = (rxhead >= rxtail) ? (rxhead - rxtail) : (rxhead + rxtop - rxtail);
 		
+		if ((OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK) == pid) {
+			send_explicit_fb(usbd_dev, sink_buffer_fullness);
+			flag = 1;
+		}
+
+		xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
+		//xprintf("|%d|", read);
+		if (npackets % 20 == 0) {
+			xprintf("fb=%d.%03d |%d| ->%d f%d\r\n", 
+					feedback_value >> 14, ((feedback_value>>4) & 0x3ff)*1000/1024, sink_buffer_fullness, 
+					npackets_fb, flush_count);
+		}
+	}
+}
+
+static void sof_cb(void) {
+	if (altsetting_sink) {
+		npackets++;
+
+		int avail = sizeof(audio_sink_buffer) - rxhead;
+		int read = 0;
+		for(;;)	{
+			int len = usbd_ep_read_packet(device, AUDIO_SINK_EP, audio_sink_buffer + rxhead, avail);
+			if (len == 0) {
+				break;
+			}
+			read += len;
+			rxhead += len;
+			if (rxhead == sizeof(audio_sink_buffer)) {
+				rxhead = 0;
+			}
+		}
+
+		sink_buffer_fullness = (rxhead >= rxtail) ? (rxhead - rxtail) : (rxhead + rxtop - rxtail);
+		
 		// if (flush_incomplete) {
 		// 	flush_incomplete = 0;
 		// 	/* Flush all tx/rx fifos */
 		// 	OTG_FS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | OTG_GRSTCTL_TXFNUM_ALL;
 		// 			      //| OTG_GRSTCTL_RXFFLSH;
 		// }
-		send_explicit_fb(usbd_dev, sink_buffer_fullness);
+		send_explicit_fb(device, sink_buffer_fullness);
 		//usbd_ep_write_packet(usbd_dev, AUDIO_SYNCH_EP, 0, 0);
 
 		xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
@@ -883,6 +924,7 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 		}
 	}
 }
+
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
@@ -1032,6 +1074,8 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 				USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE, //type
 				USB_REQ_TYPE_TYPE | USB_REQ_TYPE_RECIPIENT,  //mask
 				common_control_request);
+
+//	usbd_register_sof_callback(usbd_dev, sof_cb);
 }
 
 static void fill_buffer(void) {
@@ -1057,10 +1101,6 @@ void USBCMP_Setup(void)
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_OTGFS);
 
-	// nvic_enable_irq(NVIC_OTG_FS_IRQ);
-	// xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
-	//OTG_FS_GINTMSK = 0;
-
 	feedback_timer_start();
 
 	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE,
@@ -1071,13 +1111,15 @@ void USBCMP_Setup(void)
 			usb_strings, sizeof(usb_strings)/sizeof(usb_strings[0]),
 			usbd_control_buffer, sizeof(usbd_control_buffer));
 
-	nvic_enable_irq(NVIC_OTG_FS_IRQ);
-	xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
-	OTG_FS_GINTMSK = OTG_GINTMSK_IISOIXFRM;
-	xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
+	// nvic_enable_irq(NVIC_OTG_FS_IRQ);
+	// xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
+	// OTG_FS_GINTMSK = OTG_GINTMSK_IISOIXFRM;
+	// xprintf("FS_GINTMSK = %08x  HS = %08x\r\n", OTG_FS_GINTMSK, OTG_HS_GINTMSK);
 
 	usbd_register_set_altsetting_callback(device, set_altsetting_cb);
 	usbd_register_set_config_callback(device, cdcacm_set_config);
+
+	usbd_register_incomplete_callback(device, incomplete);
 
 	fill_buffer();
 
