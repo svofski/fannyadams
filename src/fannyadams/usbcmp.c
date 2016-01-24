@@ -3,7 +3,6 @@
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/usb/usbd.h>
-#include <libopencm3/usb/cdc.h>
 #include <libopencm3/usb/audio.h>
 #include <libopencm3/cm3/scb.h>
 #include <libopencm3/stm32/timer.h>
@@ -19,22 +18,13 @@
 #include "usrat.h"
 #include "i2s.h"
 
-
 #define USB_EP0 						0x00
 #define STFU(x) ((void)(x))
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
-typedef struct _AudioParams {
-	int Mute;
-	int Volume;
-} AudioParams_T;
-
-AudioParams_T AudioParams = {
-	.Mute = 0,
-	.Volume = 100,
-};
-
 #include "usbcmp_descriptors.h"
+#include "usbcmp_cdc.h"
+#include "usbcmp_ac.h"
 
 static usbd_device *device;
 
@@ -60,10 +50,6 @@ static volatile uint16_t fb_timer_last;
 static volatile uint32_t feedback_value = 48 << 14;
 static volatile uint32_t sink_buffer_fullness;
 
-#ifdef WITH_CDCACM
-static char cdc_buf[64];
-#endif
-
 // -- descriptors here
 
 /* Buffer to be used for control requests. Needs to be large to fit all those descriptors. */
@@ -79,115 +65,20 @@ static int common_control_request(usbd_device *usbd_dev,
 
 	//xprintf("control_request: %x Value=%x Index=%x \n\r", req->bRequest, req->wValue, req->wIndex);
 
-	int cs = req->wValue >> 8;
-	int cn = req->wValue & 0377;
-	int terminal = req->wIndex >> 8;
-	int iface = req->wIndex & 0377;
-
-	xprintf("cs=%x chan=%x entity=%x iface=%x len=%x: ", cs, cn, terminal, iface, req->wLength);
-
 	switch (req->bRequest) {
-	case USB_CDC_REQ_SET_CONTROL_LINE_STATE: {
-		/*
-		 * This Linux cdc_acm driver requires this to be implemented
-		 * even though it's optional in the CDC spec, and we don't
-		 * advertise it in the ACM functional descriptor.
-		 */
-		return USBD_REQ_HANDLED;
-		}
-	case USB_CDC_REQ_SET_LINE_CODING:
-		if (*len < sizeof(struct usb_cdc_line_coding)) {
-			return 0;
-		}
-		return USBD_REQ_HANDLED;
+		case USB_CDC_REQ_SET_CONTROL_LINE_STATE:
+		case USB_CDC_REQ_SET_LINE_CODING:
+			return cdc_control_request(usbd_dev, req, buf, len, complete);
 
-	case USB_AUDIO_REQ_GET_CUR:
-		// Get current terminal setting: Value = 0x200 = Control Selector; Index = 0x201 Terminal ID and Interface
-		{
-			xprintf("USB_AUDIO_REQ_GET_CUR\r\n");
-			if (iface == AUDIO_CONTROL_IFACE && terminal == AUDIO_VOLUME_CONTROL_ID) {
-				switch (cs) {
-					case 1:
-						// CS 1 = MUTE
-						(*buf)[0] = (uint8_t) AudioParams.Mute;
-						*len = 1;
-						break;
-					case 2:
-						// CS 2 = VOL?
-						(*((uint16_t**)buf))[0] = AudioParams.Volume;
-						xprintf("GET VOLUME: %x\n", AudioParams.Volume);
-						break;
-					default:
-						xprintf("UNKNOWN CS=%d\r\n", cs);
-						*len = 0;
-				}
-			}
-		}
-		return USBD_REQ_HANDLED;
-	case USB_AUDIO_REQ_SET_CUR:
-		{
-			// proper handling would receive data from EP0
-			xprintf("USB_AUDIO_REQ_SET_CUR\r\n");
-			xprintf(" data=%x %x\r\n", (*buf)[0], (*buf)[1]);
-			if (iface == AUDIO_CONTROL_IFACE && terminal == AUDIO_VOLUME_CONTROL_ID) {
-				switch (cs) {
-					case 1:
-						// CS 1 = MUTE
-						AudioParams.Mute = (*buf)[0];
-						xprintf("MUTE=%d\n", AudioParams.Mute);
-						break;
-					case 2:
-						// CS 2 = VOLUME
-						AudioParams.Volume = (*((uint16_t**)buf))[0];
-						xprintf("SET VOLUME: %x\n", AudioParams.Volume);
-						break;
-					default:
-						xprintf("UNKNOWN CS=%d\r\n", cs);
-				}
-			}
-
-			return USBD_REQ_HANDLED; 
-		}
-	case USB_AUDIO_REQ_GET_MIN:
-		{
-			xprintf("USB_AUDIO_REQ_GET_MIN\r\n");
-			(*buf)[0] = 0;
-			(*buf)[1] = 0;
-			*len = 2;
-		}
-		return USBD_REQ_HANDLED; 
-	case USB_AUDIO_REQ_GET_MAX:
-		{
-			xprintf("USB_AUDIO_REQ_GET_MAX\r\n");
-			(*buf)[0] = 0x00;
-			(*buf)[1] = 0x01;
-			*len = 2;
-		}
-		return USBD_REQ_HANDLED; 
-	case USB_AUDIO_REQ_GET_RES:
-		{
-			xprintf("USB_AUDIO_REQ_GET_RES\r\n");
-			(*buf)[0] = 0x10;
-			(*buf)[1] = 0x00;
-			*len = 2;
-		}
-		return USBD_REQ_HANDLED;
+		case USB_AUDIO_REQ_GET_CUR:
+		case USB_AUDIO_REQ_SET_CUR:
+		case USB_AUDIO_REQ_GET_MIN:
+		case USB_AUDIO_REQ_GET_MAX:
+		case USB_AUDIO_REQ_GET_RES:
+			return ac_control_request(usbd_dev, req, buf, len, complete);
 	}
 	return 0;
 }
-
-#ifdef WITH_CDCACM
-static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
-{
-	(void)ep;
-
-	int len = usbd_ep_read_packet(usbd_dev, CDC_BULK_IN_EP, cdc_buf, 64);
-
-	if (len) {
-		while (usbd_ep_write_packet(usbd_dev, CDC_BULK_OUT_EP, cdc_buf, len) == 0);
-	}
-}
-#endif
 
 // "The SOF pulse signal is also internally connected to the TIM2 input trigger, 
 // so that the input capture feature, the output compare feature and the timer
@@ -447,11 +338,7 @@ static void set_config_cb(usbd_device *usbd_dev, uint16_t wValue)
 
 	xprintf("set_config wValue=%d\n\r", wValue);
 
-#ifdef WITH_CDCACM
-	usbd_ep_setup(usbd_dev, CDC_BULK_IN_EP, USB_ENDPOINT_ATTR_BULK, 64, cdcacm_data_rx_cb);
-	usbd_ep_setup(usbd_dev, CDC_BULK_OUT_EP, USB_ENDPOINT_ATTR_BULK, 64, NULL);
-	usbd_ep_setup(usbd_dev, CDC_COMM_EP, USB_ENDPOINT_ATTR_INTERRUPT, 16, NULL);
-#endif
+	cdc_set_config(usbd_dev, wValue);
 
 	usbd_ep_setup(usbd_dev, AUDIO_SINK_EP, USB_ENDPOINT_ATTR_ISOCHRONOUS, AUDIO_SINK_PACKET_SIZE, audio_data_rx_cb);
 #if defined(FEEDBACK_EXPLICIT)
