@@ -59,3 +59,5 @@ src/fannyadams/fannyadams.map
 libopencm3-sub/
 
 *.x
+
+src/fannyadams.sublime-workspace

@@ -1,0 +1,38 @@
+{
+        "folders":
+        [
+                {
+                        "path": ".",
+                        "file_exclude_patterns":
+                        [
+                                "*.o",
+                                "*.a",
+                                "*.d",
+                                "*.sublime-project",
+                                "*.sublime-workspace",
+                                "*.swp"
+                        ],
+                        "folder_exclude_patterns":
+                        [
+                        ]
+                }
+        ],
+        "settings":
+        {
+                "tab_size": 4,
+                "translate_tabs_to_spaces": true,
+                "rulers": [100]
+        },
+        "build_systems":
+        [
+                {
+                        "env" : {
+                                "PATH" : "$PATH:/opt/gcc-arm-none-eabi/bin"
+                        },
+                        "name": "fannyadams",
+                        "working_dir": "${project_path}/fannyadams",
+                        "file_regex": "^(..[^:]*):([0-9]+):?([0-9]+)?:? (.*)$",
+                        "cmd": ["make"]
+                }
+        ]
+}
