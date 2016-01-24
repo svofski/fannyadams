@@ -15,7 +15,7 @@
 #include "usbcmp.h"
 
 volatile uint32_t lr = 0x80007fff;
-void test() {
+static void test(void) {
     uint16_t left = lr >> 16;
     uint16_t right = lr & 0177777;
     int32_t il = (int32_t) ((uint32_t)left << 16);
@@ -88,8 +88,8 @@ int main(void)
                             break;
                         case DEBOUNCE_DCDC:
                             {
-                            int raw = ADC3_BUFFER[0];
-                            int scaled = raw * 78;
+                            //int raw = ADC3_BUFFER[0];
+                            //int scaled = raw * 78;
                             //xprintf("DC-DC: voltage=%d.%d %d.%d\r\n", raw/1241, (raw % 1241)/124,
                             //    scaled/12410, (scaled % 12410)/1240);
                             Clock_Debounce(DEBOUNCE_DCDC, 1000);

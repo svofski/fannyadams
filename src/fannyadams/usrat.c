@@ -15,8 +15,8 @@
 volatile uint8_t TxBuffer[BUFFER_SIZE];
 volatile uint8_t RxBuffer[BUFFER_SIZE];
 
-volatile uint8_t tx_head = 0, tx_tail = 0;
-volatile uint8_t rx_head = 0, rx_tail = 0;
+volatile uint16_t tx_head = 0, tx_tail = 0;
+volatile uint16_t rx_head = 0, rx_tail = 0;
 
 #define DEBUG_USARTN 1
 

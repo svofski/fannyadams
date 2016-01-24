@@ -29,6 +29,7 @@
 #include <stdarg.h>
 
 #include "xprintf.h"
+#include "usrat.h"
 
 #ifdef HAL_USART
 // HAL callbacks
