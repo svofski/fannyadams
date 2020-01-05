@@ -55,6 +55,8 @@ static volatile uint32_t sink_buffer_fullness;
 /* Buffer to be used for control requests. Needs to be large to fit all those descriptors. */
 static uint8_t usbd_control_buffer[256];
 
+extern AudioParams_T AudioParams;
+
 static int common_control_request(usbd_device *usbd_dev,
     struct usb_setup_data *req, uint8_t **buf, uint16_t *len,
     void (**complete)(usbd_device *usbd_dev, struct usb_setup_data *req))
@@ -235,21 +237,47 @@ static void audio_data_process(void) {
         } else {
         }
 
-        for (size_t i = 0; i < MIN(192,avail)/2; i++) {
-            uint32_t samp16 = ((uint16_t*)audio_sink_buffer)[rxtail/2];
-            rxtail += 2;
-            if (rxtail >= rxtop) {
-                rxtail = 0;
-            }
-            
-            i2s_buf[i2s_buffer_ofs + ((i&1) ? -1 : 1)] = samp16 << 16; // swap left & right
+        if (AudioParams.Mute) {
+            for (size_t i = 0; i < MIN(192,avail)/2; ++i) {
+                uint32_t samp16 = 0;
+                rxtail += 2;
+                if (rxtail >= rxtop) {
+                    rxtail = 0;
+                }
 
-            i2s_buffer_ofs++;
-            
-            if (i2s_buffer_ofs >= AUDIO_BUFFER_SIZE) {
-                i2s_buffer_ofs = 0;
+                i2s_buf[i2s_buffer_ofs + ((i&1) ? -1 : 1)] = samp16 << 16; // swap left & right
+
+                i2s_buffer_ofs++;
+
+                if (i2s_buffer_ofs >= AUDIO_BUFFER_SIZE) {
+                    i2s_buffer_ofs = 0;
+                }
             }
         }
+        else {
+            for (size_t i = 0; i < MIN(192,avail)/2; i++) {
+                uint32_t samp16 = ((uint16_t*)audio_sink_buffer)[rxtail/2];
+
+                /* volume adjust */
+                int16_t sampsign = samp16;
+                sampsign /= 2;
+                samp16 = sampsign;
+
+                rxtail += 2;
+                if (rxtail >= rxtop) {
+                    rxtail = 0;
+                }
+
+                i2s_buf[i2s_buffer_ofs + ((i&1) ? -1 : 1)] = samp16 << 16; // swap left & right
+
+                i2s_buffer_ofs++;
+
+                if (i2s_buffer_ofs >= AUDIO_BUFFER_SIZE) {
+                    i2s_buffer_ofs = 0;
+                }
+            }
+        }
+
         if (i2s_paused) {
             if (--i2s_paused == 0) {
                 I2S_Start();

@@ -24,12 +24,12 @@ const struct usb_device_descriptor usbcmp_device_descr = {
     .bLength = USB_DT_DEVICE_SIZE,
     .bDescriptorType = USB_DT_DEVICE,
     .bcdUSB = 0x0200,
-    .bDeviceClass = 0,          // Device defined at Interface level
-    .bDeviceSubClass = 0,
-    .bDeviceProtocol = 0,
+    .bDeviceClass = 0xef,          // Use interface association descriptor
+    .bDeviceSubClass = 2,
+    .bDeviceProtocol = 1,
     .bMaxPacketSize0 = 64,
     .idVendor = 0x0483,
-    .idProduct = 0x1234,        // 0x5740 = serial adapter
+    .idProduct = 0x1235,        // 0x5740 = serial adapter
                                 // Windows is boneheaded and disregards everything
                                 // when it sees a known VID/PID combo. So to avoid
                                 // this device being recognized as a simple serial
@@ -110,12 +110,12 @@ static const struct {
 static const struct usb_interface_descriptor comm_iface[] = {{
     .bLength = USB_DT_INTERFACE_SIZE,
     .bDescriptorType = USB_DT_INTERFACE,
-    .bInterfaceNumber = CDCACM_COMM_INTERFACE,
+    .bInterfaceNumber = CDCACM_COMM_INTERFACE, // 0
     .bAlternateSetting = 0,
     .bNumEndpoints = 1,
     .bInterfaceClass = USB_CLASS_CDC,
     .bInterfaceSubClass = USB_CDC_SUBCLASS_ACM,
-    .bInterfaceProtocol = USB_CDC_PROTOCOL_AT,
+    .bInterfaceProtocol = USB_CDC_PROTOCOL_NONE, //USB_CDC_PROTOCOL_AT,
     .iInterface = 0,
 
     .endpoint = comm_endp,
@@ -127,7 +127,7 @@ static const struct usb_interface_descriptor comm_iface[] = {{
 static const struct usb_interface_descriptor data_iface[] = {{
     .bLength = USB_DT_INTERFACE_SIZE,
     .bDescriptorType = USB_DT_INTERFACE,
-    .bInterfaceNumber = CDCACM_DATA_INTERFACE,
+    .bInterfaceNumber = CDCACM_DATA_INTERFACE, // 1
     .bAlternateSetting = 0,
     .bNumEndpoints = 2,
     .bInterfaceClass = USB_CLASS_DATA,
@@ -137,6 +137,31 @@ static const struct usb_interface_descriptor data_iface[] = {{
 
     .endpoint = data_endp,
 } };
+
+// An interface association allows the device to group a set of interfaces to
+// represent one logical device to be managed by one host driver.
+static const struct usb_iface_assoc_descriptor cdc_acm_interface_association = {
+    // The size of an interface association descriptor: 8
+    .bLength = USB_DT_INTERFACE_ASSOCIATION_SIZE,
+    // A value of 11 indicates that this descriptor describes an interface
+    // association.
+    .bDescriptorType = USB_DT_INTERFACE_ASSOCIATION,
+    // The first interface that is part of this group.
+    .bFirstInterface = CDCACM_COMM_INTERFACE,
+    // The number of included interfaces. This implies that the bundled
+    // interfaces must be continugous.
+    .bInterfaceCount = 2,
+    // The class, subclass, and protocol of device represented by this
+    // association. In this case a communication device.
+    .bFunctionClass = USB_CLASS_CDC,
+    // Using Abstract Control Model
+    .bFunctionSubClass = USB_CDC_SUBCLASS_ACM,
+    // With AT protocol (or Hayes compatible).
+    .bFunctionProtocol = USB_CDC_PROTOCOL_AT,
+    // A string representing this interface. Zero means not provided.
+    .iFunction = 0,
+};
+
 #endif // WITH_CDCACM
 
 #if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
@@ -278,7 +303,7 @@ static const struct {
 static const struct usb_interface_descriptor audio_control_iface[] = {{
     .bLength = USB_DT_INTERFACE_SIZE,
     .bDescriptorType = USB_DT_INTERFACE,
-    .bInterfaceNumber = AUDIO_CONTROL_IFACE,
+    .bInterfaceNumber = AUDIO_CONTROL_IFACE, // 2
     .bAlternateSetting = 0,
     .bNumEndpoints = 0,
     .bInterfaceClass = USB_CLASS_AUDIO,
@@ -426,7 +451,7 @@ static const struct usb_interface_descriptor audio_streaming_sink_iface[] = {
     {
         .bLength = USB_DT_INTERFACE_SIZE,
         .bDescriptorType = USB_DT_INTERFACE,
-        .bInterfaceNumber = AUDIO_SINK_IFACE,
+        .bInterfaceNumber = AUDIO_SINK_IFACE, // 3
         .bAlternateSetting = 0,
         .bNumEndpoints = 0,
         .bInterfaceClass = USB_CLASS_AUDIO,
@@ -437,7 +462,7 @@ static const struct usb_interface_descriptor audio_streaming_sink_iface[] = {
     {
         .bLength = USB_AUDIO_INTERFACE_DESCRIPTOR_SIZE,
         .bDescriptorType = USB_DT_INTERFACE,
-        .bInterfaceNumber = AUDIO_SINK_IFACE,
+        .bInterfaceNumber = AUDIO_SINK_IFACE, // 3
         .bAlternateSetting = 1,
         .bNumEndpoints = sizeof(audio_sink_endp)/(sizeof(audio_sink_endp[0])),
         .bInterfaceClass = USB_CLASS_AUDIO,
@@ -458,7 +483,7 @@ static const struct usb_interface_descriptor audio_streaming_source_iface[] = {
     {
         .bLength = USB_DT_INTERFACE_SIZE,
         .bDescriptorType = USB_DT_INTERFACE,
-        .bInterfaceNumber = AUDIO_SOURCE_IFACE,
+        .bInterfaceNumber = AUDIO_SOURCE_IFACE, // 4
         .bAlternateSetting = 0,
         .bNumEndpoints = 0,
         .bInterfaceClass = USB_CLASS_AUDIO,
@@ -469,7 +494,7 @@ static const struct usb_interface_descriptor audio_streaming_source_iface[] = {
     {
         .bLength = USB_AUDIO_INTERFACE_DESCRIPTOR_SIZE,
         .bDescriptorType = USB_DT_INTERFACE,
-        .bInterfaceNumber = AUDIO_SOURCE_IFACE,
+        .bInterfaceNumber = AUDIO_SOURCE_IFACE, // 4
         .bAlternateSetting = 1,
         .bNumEndpoints = 1,
         .bInterfaceClass = USB_CLASS_AUDIO,
@@ -491,11 +516,38 @@ uint8_t altsetting_sink = 0;
 uint8_t altsetting_source = 0;
 #endif
 
+// An interface association allows the device to group a set of interfaces to
+// represent one logical device to be managed by one host driver.
+static const struct usb_iface_assoc_descriptor audio_interface_association = {
+    // The size of an interface association descriptor: 8
+    .bLength = USB_DT_INTERFACE_ASSOCIATION_SIZE,
+    // A value of 11 indicates that this descriptor describes an interface
+    // association.
+    .bDescriptorType = USB_DT_INTERFACE_ASSOCIATION,
+    // The first interface that is part of this group.
+    .bFirstInterface = AUDIO_CONTROL_IFACE,
+    // The number of included interfaces. This implies that the bundled
+    // interfaces must be continugous.
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
+    .bInterfaceCount = 3, // CONTROL + SINK, but 3 if also SOURCE
+#else
+    .bInterfaceCount = 2, // CONTROL + SINK, but 3 if also SOURCE
+#endif
+    // The class, subclass, and protocol of device represented by this
+    // association. In this case a communication device.
+    .bFunctionClass = USB_CLASS_AUDIO,
+    .bFunctionSubClass = USB_AUDIO_SUBCLASS_CONTROL,
+    .bFunctionProtocol = 0,
+    // A string representing this interface. Zero means not provided.
+    .iFunction = 0,
+};
+
 static const struct usb_interface ifaces[] = {
 #ifdef WITH_CDCACM
     {
-    .num_altsetting = 1,
-    .altsetting = comm_iface,
+        .num_altsetting = 1,
+        .iface_assoc = &cdc_acm_interface_association,
+        .altsetting = comm_iface,
     },
     {
     .num_altsetting = 1,
@@ -504,6 +556,7 @@ static const struct usb_interface ifaces[] = {
 #endif
     {
     .num_altsetting = 1,
+    .iface_assoc = &audio_interface_association,
     .altsetting = audio_control_iface,
     },
     {

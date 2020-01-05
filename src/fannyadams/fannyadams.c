@@ -28,7 +28,7 @@ int main(void)
     Clock_Setup();
     Debug_UART_Setup();
 
-    xprintf("LES SHADOKS POMPAIENT\n\r");
+    xprintf("FANNY ADAMS BUGGERALL\n\r");
 
     test();
 

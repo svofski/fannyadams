@@ -62,7 +62,7 @@ void I2S_SetCallback(dma_callback cb) {
 }
 
 void I2S_InitBuffer() {
-    int32_t n = 0x80000000;
+    int32_t n = 0x10000000;
     for (int i = 0; i < AUDIO_BUFFER_SIZE; i+=2) {
         buffer1[i] = +n; //0x800000 + n;
         buffer1[i+1] = -n; //0x800000 - n;

@@ -29,9 +29,9 @@ int cdc_control_request(usbd_device *usbd_dev,
         }
     case USB_CDC_REQ_SET_LINE_CODING:
         if (*len < sizeof(struct usb_cdc_line_coding)) {
-            return USBD_REQ_NOTSUPP;
+            return USBD_REQ_NOTSUPP; // 0
         }
-        return USBD_REQ_HANDLED;
+        return USBD_REQ_HANDLED; // 1
     }
     return USBD_REQ_NOTSUPP;
 }
@@ -44,6 +44,7 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
     size_t len = usbd_ep_read_packet(usbd_dev, CDC_BULK_OUT_EP, cdc_buf, sizeof(cdc_buf) - 1);
 
     if (len) {
+        cdc_buf[0] = cdc_buf[0] + 1;
         size_t wrlen = usbd_ep_write_packet(usbd_dev, CDC_BULK_IN_EP, cdc_buf, len);
         if (wrlen == 0) {
             // error!
