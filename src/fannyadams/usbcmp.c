@@ -26,7 +26,9 @@
 #include "usbcmp_cdc.h"
 #include "usbcmp_ac.h"
 
-static usbd_device *device;
+usbd_device *device = NULL;
+
+static int configured = 0;
 
 // ample sink buffer
 static uint8_t audio_sink_buffer[192 * 8];
@@ -382,6 +384,8 @@ static void set_config_cb(usbd_device *usbd_dev, uint16_t wValue)
                 USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE, //type
                 USB_REQ_TYPE_TYPE | USB_REQ_TYPE_RECIPIENT,  //mask
                 common_control_request);
+
+    configured = 1;
 }
 
 static void fill_buffer(void) {
@@ -458,3 +462,4 @@ void USBCMP_Setup(void)
 #endif
     xprintf("\r\n");
 }
+

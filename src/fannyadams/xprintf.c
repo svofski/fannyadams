@@ -110,6 +110,7 @@ static void uputchar(UART_HandleTypeDef *huart, char c)
 static void printchar(char **str, int c)
 {
     //extern int xputchar(int c);
+    extern int cdc_putchar(int ch);
 
     if (str) {
         **str = c;
@@ -119,6 +120,10 @@ static void printchar(char **str, int c)
         uputchar(DebugUART, c);
         #else
         xputchar(c);
+        cdc_putchar(c);
+        if (c == '\n') {
+            cdc_putchar('\r');
+        }
         #endif
     }
 }
