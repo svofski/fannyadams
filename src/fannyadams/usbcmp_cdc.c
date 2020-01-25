@@ -95,6 +95,9 @@ void cdc_set_config(usbd_device *usbd_dev, uint16_t wValue)
 
 int cdc_putchar(int ch) 
 {
+    if (!ringbuf_can_put(&putchar_buf)) {
+        (void)ringbuf_get(&putchar_buf);
+    }
     ringbuf_put(&putchar_buf, ch);
     return 0;
 }

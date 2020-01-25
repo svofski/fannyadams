@@ -787,16 +787,16 @@ static const struct usb_interface ifaces[] = {
         .altsetting = audio_streaming_source_iface,
     },
 #endif
-//    // MIDI
-//    {
-//        .num_altsetting = 1,
-//        .iface_assoc = &midi_interface_association,
-//        .altsetting = midi_control_iface,
-//    },
-//    {
-//        .num_altsetting = 1,
-//        .altsetting = midi_streaming_iface,
-//    }
+    // MIDI
+    {
+        .num_altsetting = 1,
+        .iface_assoc = &midi_interface_association,
+        .altsetting = midi_control_iface,
+    },
+    {
+        .num_altsetting = 1,
+        .altsetting = midi_streaming_iface,
+    }
 };
 
 const struct usb_config_descriptor usbcmp_device_config = {

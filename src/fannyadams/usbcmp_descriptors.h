@@ -30,19 +30,8 @@
     #define CDCACM_COMM_INTERFACE           ((IFSTART) + 1)
     #define CDCACM_DATA_INTERFACE           ((IFSTART) + 2)
     #define IFCDC                           (CDCACM_DATA_INTERFACE)
-
-    #define CDC_BULK_OUT_EP                 ((EPSTART) + 1)             // 0x01
-    #define CDC_BULK_IN_EP                  (0200 | ((EPSTART) + 2))    // 0x82
-    #define CDC_COMM_EP                     (0200 | ((EPSTART) + 3))    // 0x83
-//    #define IN_AEP                          (CDC_COMM_EP+1)
-//    #define OUT_AEP                         ((CDC_BULK_OUT_EP) + 1)
-
-    #define EP_AUDIO_0                      ((EPSTART) + 3)
 #else
     #define IFCDC                           IFSTART
-//    #define IN_AEP                          (0200 | (EPSTART + 1))
-//    #define OUT_AEP                         (EPSTART + 1)
-    #define EP_AUDIO_FIRST                  (1)
 #endif
 
 
@@ -59,33 +48,6 @@
 #define MIDI_CONTROL_IFACE                  ((IFMIDI) + 0)
 #define MIDI_STREAMING_IFACE                ((IFMIDI) + 1)
 
-#define AUDIO_SINK_EP                       ((EP_AUDIO_0)+1)            // 0x04
-
-#if defined(FEEDBACK_EXPLICIT)
-    #define AUDIO_SYNCH_EP                  (0200 | ((EP_AUDIO_0)+2))   // 0x85
-    #define IN_SRC                          (0200 | ((EP_AUDIO_0)+3))   // 0x86
-    #define EP_MIDI_0                       ((EP_AUDIO_0)+3)
-#else
-    #define IN_SRC                          (0200 | ((EP_AUDIO_0)+2))   // 0x85
-    #define EP_MIDI_0                       ((EP_AUDIO_0)+2)
-#endif
-
-#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
-    #define AUDIO_SOURCE_EP                 (IN_SRC)                    // 0x82
-#endif
-
-#define MIDI_OUT_EP                         ((EP_MIDI_0) + 1)
-#define MIDI_IN_EP                          (0200 | ((EP_MIDI_0) + 2))
-
-#pragma message(VAR_NAME_VALUE(CDCACM_COMM_INTERFACE))
-#pragma message(VAR_NAME_VALUE(CDCACM_DATA_INTERFACE))
-#pragma message(VAR_NAME_VALUE(AUDIO_CONTROL_IFACE))
-#pragma message(VAR_NAME_VALUE(AUDIO_SINK_IFACE))
-#pragma message(VAR_NAME_VALUE(AUDIO_SOURCE_IFACE))
-#pragma message(VAR_NAME_VALUE(MIDI_CONTROL_IFACE))
-#pragma message(VAR_NAME_VALUE(MIDI_STREAMING_IFACE))
-
-
 // Packet sizes must reserve space for one extra sample for rate adjustments
 #define AUDIO_SINK_PACKET_SIZE              (USB_AUDIO_PACKET_SIZE(48000,2,16) + SINK_SAMPLE_SIZE)
 #define AUDIO_SOURCE_PACKET_SIZE            (USB_AUDIO_PACKET_SIZE(48000,SOURCE_CHANNELS,16) + SOURCE_SAMPLE_SIZE)
@@ -99,6 +61,19 @@
 #define AUDIO_SOURCE_TERMINAL_INPUT         4   // Line In
 #define AUDIO_SOURCE_VOLUME_CONTROL         5
 #define AUDIO_SOURCE_TERMINAL_OUTPUT        6   // USB Stream
+
+// An attempt at sane endpoint definition, just listing them out 
+#define CDC_BULK_OUT_EP 0x01
+#define CDC_BULK_IN_EP  0x82
+#define CDC_COMM_EP     0x83
+#if defined(FEEDBACK_EXPLICIT)
+#define AUDIO_SINK_EP   0x02
+#define AUDIO_SYNCH_EP  0x84
+#define MIDI_OUT_EP     0x03
+#define MIDI_IN_EP      0x85
+#else
+#error You need to define the endpoints
+#endif
 
 extern uint8_t altsetting_sink;
 

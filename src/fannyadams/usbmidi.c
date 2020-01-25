@@ -42,6 +42,11 @@ static void usbmidi_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
      * packs the identify request in a single 8 byte USB message.
      */
     if (len) {
+        xprintf("MIDI:");
+        for (int i = 0; i < len; ++i) {
+            xprintf("%02x ", buf[i]);
+        }
+        xprintf("\n");
         while (usbd_ep_write_packet(usbd_dev, 0x81, sysex_identity,
                     sizeof(sysex_identity)) == 0);
     }
