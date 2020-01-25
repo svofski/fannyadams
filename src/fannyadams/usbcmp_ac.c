@@ -100,6 +100,12 @@ int ac_control_request(usbd_device *usbd_dev,
             *len = 2;
         }
         return USBD_REQ_HANDLED;
+    case USB_AUDIO_REQ_SET_RES:
+        {
+            xprintf("USB_AUDIO_REQ_SET_RES\r\n");
+            xprintf(" data=%x %x\r\n", (*buf)[0], (*buf)[1]);
+            return USBD_REQ_HANDLED;
+        }
     }
     return USBD_REQ_NOTSUPP;
 }

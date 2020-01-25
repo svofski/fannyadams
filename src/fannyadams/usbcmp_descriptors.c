@@ -1,6 +1,7 @@
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/usb/cdc.h>
 #include <libopencm3/usb/audio.h>
+#include <libopencm3/usb/midi.h>
 
 #include "usbcmp_descriptors.h"
 
@@ -13,8 +14,8 @@ enum USB_STRID {
 };
 
 const char* usb_strings[] = {
-    "(Generic USB Audio)",
-    "USB Audio Device",
+    "svofski",
+    "Fanny Adams",
     "0.1",
     "Input Terminal",
     "Output Terminal",
@@ -28,7 +29,7 @@ const struct usb_device_descriptor usbcmp_device_descr = {
     .bDeviceSubClass = 2,
     .bDeviceProtocol = 1,
     .bMaxPacketSize0 = 64,
-    .idVendor = 0x0483,
+    .idVendor = 0x6666,         // prototype vendor id
     .idProduct = 0x1235,        // 0x5740 = serial adapter
                                 // Windows is boneheaded and disregards everything
                                 // when it sees a known VID/PID combo. So to avoid
@@ -542,6 +543,221 @@ static const struct usb_iface_assoc_descriptor audio_interface_association = {
     .iFunction = 0,
 };
 
+//
+//
+//
+//
+// --------------------- MIDI --------------------------
+//
+//
+//
+
+/*
+ * Midi specific endpoint descriptors.
+ */
+static const struct usb_midi_endpoint_descriptor midi_bulk_endp[] = {{
+    /* Table B-12: MIDI Adapter Class-specific Bulk OUT Endpoint
+     * Descriptor
+     */
+    .head = {
+        .bLength = sizeof(struct usb_midi_endpoint_descriptor),
+        .bDescriptorType = USB_AUDIO_DT_CS_ENDPOINT,
+        .bDescriptorSubType = USB_MIDI_SUBTYPE_MS_GENERAL,
+        .bNumEmbMIDIJack = 1,
+    },
+    .jack[0] = {
+        .baAssocJackID = 0x01,
+    },
+    }, {
+    /* Table B-14: MIDI Adapter Class-specific Bulk IN Endpoint
+     * Descriptor
+     */
+    .head = {
+        .bLength = sizeof(struct usb_midi_endpoint_descriptor),
+        .bDescriptorType = USB_AUDIO_DT_CS_ENDPOINT,
+        .bDescriptorSubType = USB_MIDI_SUBTYPE_MS_GENERAL,
+        .bNumEmbMIDIJack = 1,
+    },
+    .jack[0] = {
+        .baAssocJackID = 0x03,
+    },
+} };
+
+/*
+ * Standard endpoint descriptors
+ */
+static const struct usb_endpoint_descriptor midi_standard_bulk_endp[] = {{
+    /* Table B-11: MIDI Adapter Standard Bulk OUT Endpoint Descriptor */
+    .bLength = USB_DT_ENDPOINT_SIZE,
+    .bDescriptorType = USB_DT_ENDPOINT,
+    .bEndpointAddress = MIDI_OUT_EP,            // 0x03
+    .bmAttributes = USB_ENDPOINT_ATTR_BULK,
+    .wMaxPacketSize = 0x40,
+    .bInterval = 0x00,
+
+    .extra = &midi_bulk_endp[0],
+    .extralen = sizeof(midi_bulk_endp[0])
+}, {
+    .bLength = USB_DT_ENDPOINT_SIZE,
+    .bDescriptorType = USB_DT_ENDPOINT,
+    .bEndpointAddress = MIDI_IN_EP,             // 0x84
+    .bmAttributes = USB_ENDPOINT_ATTR_BULK,
+    .wMaxPacketSize = 0x40,
+    .bInterval = 0x00,
+
+    .extra = &midi_bulk_endp[1],
+    .extralen = sizeof(midi_bulk_endp[1])
+} };
+
+/*
+ * Table B-4: MIDI Adapter Class-specific AC Interface Descriptor
+ */
+static const struct {
+    struct usb_audio_header_descriptor_head header_head;
+    struct usb_audio_header_descriptor_body header_body;
+} __attribute__((packed)) midi_control_functional_descriptors = {
+    .header_head = {
+        .bLength = sizeof(struct usb_audio_header_descriptor_head) +
+            1 * sizeof(struct usb_audio_header_descriptor_body),
+        .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+        .bDescriptorSubtype = USB_AUDIO_TYPE_HEADER,
+        .bcdADC = 0x0100,
+        .wTotalLength =
+            sizeof(struct usb_audio_header_descriptor_head) +
+            1 * sizeof(struct usb_audio_header_descriptor_body),
+        .binCollection = 1,
+    },
+    .header_body = {
+        .baInterfaceNr = MIDI_STREAMING_IFACE,
+    },
+};
+
+// MIDI audio control standard interface descriptor
+static const struct usb_interface_descriptor midi_control_iface[] = {{
+    .bLength = USB_DT_INTERFACE_SIZE,
+    .bDescriptorType = USB_DT_INTERFACE,
+    .bInterfaceNumber = MIDI_CONTROL_IFACE, // 4
+    .bAlternateSetting = 0,
+    .bNumEndpoints = 0,
+    .bInterfaceClass = USB_CLASS_AUDIO,
+    .bInterfaceSubClass = USB_AUDIO_SUBCLASS_CONTROL,
+    .bInterfaceProtocol = 0,
+    .iInterface = 0,
+
+    .extra = &midi_control_functional_descriptors,
+    .extralen = sizeof(midi_control_functional_descriptors)
+} };
+
+
+
+
+/*
+ * Class-specific MIDI streaming interface descriptor
+ */
+static const struct {
+    struct usb_midi_header_descriptor header;
+    struct usb_midi_in_jack_descriptor in_embedded;
+    struct usb_midi_in_jack_descriptor in_external;
+    struct usb_midi_out_jack_descriptor out_embedded;
+    struct usb_midi_out_jack_descriptor out_external;
+} __attribute__((packed)) midi_streaming_functional_descriptors = {
+    /* Table B-6: Midi Adapter Class-specific MS Interface Descriptor */
+    .header = {
+        .bLength = sizeof(struct usb_midi_header_descriptor),
+        .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+        .bDescriptorSubtype = USB_MIDI_SUBTYPE_MS_HEADER,
+        .bcdMSC = 0x0100,
+        .wTotalLength = sizeof(midi_streaming_functional_descriptors),
+    },
+    /* Table B-7: MIDI Adapter MIDI IN Jack Descriptor (Embedded) */
+    .in_embedded = {
+        .bLength = sizeof(struct usb_midi_in_jack_descriptor),
+        .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+        .bDescriptorSubtype = USB_MIDI_SUBTYPE_MIDI_IN_JACK,
+        .bJackType = USB_MIDI_JACK_TYPE_EMBEDDED,
+        .bJackID = 0x01,
+        .iJack = 0x00,
+    },
+    /* Table B-8: MIDI Adapter MIDI IN Jack Descriptor (External) */
+    .in_external = {
+        .bLength = sizeof(struct usb_midi_in_jack_descriptor),
+        .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+        .bDescriptorSubtype = USB_MIDI_SUBTYPE_MIDI_IN_JACK,
+        .bJackType = USB_MIDI_JACK_TYPE_EXTERNAL,
+        .bJackID = 0x02,
+        .iJack = 0x00,
+    },
+    /* Table B-9: MIDI Adapter MIDI OUT Jack Descriptor (Embedded) */
+    .out_embedded = {
+        .head = {
+            .bLength = sizeof(struct usb_midi_out_jack_descriptor),
+            .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+            .bDescriptorSubtype = USB_MIDI_SUBTYPE_MIDI_OUT_JACK,
+            .bJackType = USB_MIDI_JACK_TYPE_EMBEDDED,
+            .bJackID = 0x03,
+            .bNrInputPins = 1,
+        },
+        .source[0] = {
+            .baSourceID = 0x02,
+            .baSourcePin = 0x01,
+        },
+        .tail = {
+            .iJack = 0x00,
+        }
+    },
+    /* Table B-10: MIDI Adapter MIDI OUT Jack Descriptor (External) */
+    .out_external = {
+        .head = {
+            .bLength = sizeof(struct usb_midi_out_jack_descriptor),
+            .bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+            .bDescriptorSubtype = USB_MIDI_SUBTYPE_MIDI_OUT_JACK,
+            .bJackType = USB_MIDI_JACK_TYPE_EXTERNAL,
+            .bJackID = 0x04,
+            .bNrInputPins = 1,
+        },
+        .source[0] = {
+            .baSourceID = 0x01,
+            .baSourcePin = 0x01,
+        },
+        .tail = {
+            .iJack = 0x00,
+        },
+    },
+};
+
+/*
+ * Table B-5: MIDI Adapter Standard MS Interface Descriptor
+ */
+static const struct usb_interface_descriptor midi_streaming_iface[] = {{
+    .bLength = USB_DT_INTERFACE_SIZE,
+    .bDescriptorType = USB_DT_INTERFACE,
+    .bInterfaceNumber = MIDI_STREAMING_IFACE,
+    .bAlternateSetting = 0,
+    .bNumEndpoints = 2,
+    .bInterfaceClass = USB_CLASS_AUDIO,
+    .bInterfaceSubClass = USB_AUDIO_SUBCLASS_MIDISTREAMING,
+    .bInterfaceProtocol = 0,
+    .iInterface = 0,
+
+    .endpoint = midi_standard_bulk_endp,
+
+    // vv this murders the enumerator
+    .extra = &midi_streaming_functional_descriptors,
+    .extralen = sizeof(midi_streaming_functional_descriptors)
+} };
+
+
+static const struct usb_iface_assoc_descriptor midi_interface_association = {
+    .bLength = USB_DT_INTERFACE_ASSOCIATION_SIZE,
+    .bDescriptorType = USB_DT_INTERFACE_ASSOCIATION,
+    .bFirstInterface = MIDI_CONTROL_IFACE,
+    .bInterfaceCount = 2, // control + midistreaming
+    .bFunctionClass = USB_CLASS_AUDIO,
+    .bFunctionSubClass = USB_AUDIO_SUBCLASS_CONTROL,
+    .bFunctionProtocol = 0,
+    .iFunction = 0,
+};
+
 static const struct usb_interface ifaces[] = {
 #ifdef WITH_CDCACM
     {
@@ -550,38 +766,49 @@ static const struct usb_interface ifaces[] = {
         .altsetting = comm_iface,
     },
     {
-    .num_altsetting = 1,
-    .altsetting = data_iface,
+        .num_altsetting = 1,
+        .altsetting = data_iface,
     },
 #endif
     {
-    .num_altsetting = 1,
-    .iface_assoc = &audio_interface_association,
-    .altsetting = audio_control_iface,
+        .num_altsetting = 1,
+        .iface_assoc = &audio_interface_association,
+        .altsetting = audio_control_iface,
     },
     {
-    .num_altsetting = 2,
-    .cur_altsetting = &altsetting_sink,
-    .altsetting = audio_streaming_sink_iface,
+        .num_altsetting = 2,
+        .cur_altsetting = &altsetting_sink,
+        .altsetting = audio_streaming_sink_iface,
     },
 #if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
     {
-    .num_altsetting = 2,
-    .cur_altsetting = &altsetting_source,
-    .altsetting = audio_streaming_source_iface,
+        .num_altsetting = 2,
+        .cur_altsetting = &altsetting_source,
+        .altsetting = audio_streaming_source_iface,
     },
 #endif
-    };
+//    // MIDI
+//    {
+//        .num_altsetting = 1,
+//        .iface_assoc = &midi_interface_association,
+//        .altsetting = midi_control_iface,
+//    },
+//    {
+//        .num_altsetting = 1,
+//        .altsetting = midi_streaming_iface,
+//    }
+};
 
 const struct usb_config_descriptor usbcmp_device_config = {
     .bLength = USB_DT_CONFIGURATION_SIZE,
     .bDescriptorType = USB_DT_CONFIGURATION,
-    .wTotalLength = 0,          // Length of the total configuration block, including this descriptor, in bytes.
+    .wTotalLength = 0,   // Length of the total configuration block, 
+                         // including this descriptor, in bytes.
     .bNumInterfaces = sizeof(ifaces)/sizeof(ifaces[0]), 
     .bConfigurationValue = 1,   
     .iConfiguration = 0,
     .bmAttributes = USB_CONFIG_ATTR_DEFAULT,
-    .bMaxPower = 0x32,
+    .bMaxPower = 0xfa, // 500mA
 
     .interface = ifaces,
 };

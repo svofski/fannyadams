@@ -25,10 +25,9 @@
 #include "usbcmp_descriptors.h"
 #include "usbcmp_cdc.h"
 #include "usbcmp_ac.h"
+#include "usbmidi.h"
 
 usbd_device *device = NULL;
-
-static int configured = 0;
 
 // ample sink buffer
 static uint8_t audio_sink_buffer[192 * 8];
@@ -55,7 +54,7 @@ static volatile uint32_t sink_buffer_fullness;
 // -- descriptors here
 
 /* Buffer to be used for control requests. Needs to be large to fit all those descriptors. */
-static uint8_t usbd_control_buffer[256];
+static uint8_t usbd_control_buffer[512]; // vcp + audio (no mic) + midi = 362
 
 extern AudioParams_T AudioParams;
 
@@ -76,9 +75,10 @@ static int common_control_request(usbd_device *usbd_dev,
 
         case USB_AUDIO_REQ_GET_CUR:
         case USB_AUDIO_REQ_SET_CUR:
-        case USB_AUDIO_REQ_GET_MIN:
-        case USB_AUDIO_REQ_GET_MAX:
-        case USB_AUDIO_REQ_GET_RES:
+        case USB_AUDIO_REQ_GET_MIN: // 0x82
+        case USB_AUDIO_REQ_GET_MAX: // 0x83
+        case USB_AUDIO_REQ_GET_RES: // 0x84 - resolution of volume control
+        case USB_AUDIO_REQ_SET_RES: // 0x04
             return ac_control_request(usbd_dev, req, buf, len, complete);
     }
     return 0;
@@ -385,7 +385,7 @@ static void set_config_cb(usbd_device *usbd_dev, uint16_t wValue)
                 USB_REQ_TYPE_TYPE | USB_REQ_TYPE_RECIPIENT,  //mask
                 common_control_request);
 
-    configured = 1;
+    midi_set_config(usbd_dev, wValue);
 }
 
 static void fill_buffer(void) {

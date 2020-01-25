@@ -23,6 +23,7 @@
 #define SINK_SAMPLE_SIZE                    4       // Stereo: 16 bits * 2
 
 #define IFSTART                             (-1)
+
 #define EPSTART                             0
 
 #ifdef WITH_CDCACM
@@ -30,44 +31,60 @@
     #define CDCACM_DATA_INTERFACE           ((IFSTART) + 2)
     #define IFCDC                           (CDCACM_DATA_INTERFACE)
 
-    #define CDC_BULK_IN_EP                  (0200 | ((EPSTART) + 2))    // 0x82
     #define CDC_BULK_OUT_EP                 ((EPSTART) + 1)             // 0x01
+    #define CDC_BULK_IN_EP                  (0200 | ((EPSTART) + 2))    // 0x82
     #define CDC_COMM_EP                     (0200 | ((EPSTART) + 3))    // 0x83
-    #define EPCDC                           (0177 & CDC_BULK_OUT_EP)
-    #define IN_AEP                          (CDC_COMM_EP+1)
-    #define OUT_AEP                         ((CDC_BULK_OUT_EP) + 1)
+//    #define IN_AEP                          (CDC_COMM_EP+1)
+//    #define OUT_AEP                         ((CDC_BULK_OUT_EP) + 1)
+
+    #define EP_AUDIO_0                      ((EPSTART) + 3)
 #else
     #define IFCDC                           IFSTART
-    #define IN_AEP                          (0200 | (EPSTART + 1))
-    #define OUT_AEP                         (EPSTART + 1)
+//    #define IN_AEP                          (0200 | (EPSTART + 1))
+//    #define OUT_AEP                         (EPSTART + 1)
+    #define EP_AUDIO_FIRST                  (1)
 #endif
+
 
 #define AUDIO_CONTROL_IFACE                 ((IFCDC) + 1)
 #define AUDIO_SINK_IFACE                    ((IFCDC) + 2)
 #define AUDIO_SOURCE_IFACE                  ((IFCDC) + 3)
-#define IFAUDIO                             AUDIO_SOURCE_IFACE
 
-#define AUDIO_SINK_EP                       (OUT_AEP)                   // 0x01
+#if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
+#define IFMIDI                              ((IFCDC) + 4)
+#else
+#define IFMIDI                              ((IFCDC) + 3)
+#endif
+
+#define MIDI_CONTROL_IFACE                  ((IFMIDI) + 0)
+#define MIDI_STREAMING_IFACE                ((IFMIDI) + 1)
+
+#define AUDIO_SINK_EP                       ((EP_AUDIO_0)+1)            // 0x04
 
 #if defined(FEEDBACK_EXPLICIT)
-    #define AUDIO_SYNCH_EP                  (IN_AEP)                    // 0x81
-    #define IN_SRC                          (AUDIO_SYNCH_EP + 1)
+    #define AUDIO_SYNCH_EP                  (0200 | ((EP_AUDIO_0)+2))   // 0x85
+    #define IN_SRC                          (0200 | ((EP_AUDIO_0)+3))   // 0x86
+    #define EP_MIDI_0                       ((EP_AUDIO_0)+3)
 #else
-    #define IN_SRC                          IN_AEP
+    #define IN_SRC                          (0200 | ((EP_AUDIO_0)+2))   // 0x85
+    #define EP_MIDI_0                       ((EP_AUDIO_0)+2)
 #endif
 
 #if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
     #define AUDIO_SOURCE_EP                 (IN_SRC)                    // 0x82
 #endif
 
+#define MIDI_OUT_EP                         ((EP_MIDI_0) + 1)
+#define MIDI_IN_EP                          (0200 | ((EP_MIDI_0) + 2))
+
 #pragma message(VAR_NAME_VALUE(CDCACM_COMM_INTERFACE))
 #pragma message(VAR_NAME_VALUE(CDCACM_DATA_INTERFACE))
 #pragma message(VAR_NAME_VALUE(AUDIO_CONTROL_IFACE))
 #pragma message(VAR_NAME_VALUE(AUDIO_SINK_IFACE))
 #pragma message(VAR_NAME_VALUE(AUDIO_SOURCE_IFACE))
+#pragma message(VAR_NAME_VALUE(MIDI_CONTROL_IFACE))
+#pragma message(VAR_NAME_VALUE(MIDI_STREAMING_IFACE))
 
-// Next IFACE starts with IFAUDIO + 1
-// Next EP starts with EPSOURCE + 1
 
 // Packet sizes must reserve space for one extra sample for rate adjustments
 #define AUDIO_SINK_PACKET_SIZE              (USB_AUDIO_PACKET_SIZE(48000,2,16) + SINK_SAMPLE_SIZE)
