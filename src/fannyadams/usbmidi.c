@@ -35,7 +35,7 @@ static void usbmidi_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
     (void)ep;
 
     char buf[64];
-    int len = usbd_ep_read_packet(usbd_dev, 0x01, buf, 64);
+    int len = usbd_ep_read_packet(usbd_dev, MIDI_OUT_EP, buf, 64);
 
     /* This implementation treats any message from the host as a SysEx
      * identity request. This works well enough providing the host
@@ -47,8 +47,8 @@ static void usbmidi_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
             xprintf("%02x ", buf[i]);
         }
         xprintf("\n");
-        while (usbd_ep_write_packet(usbd_dev, 0x81, sysex_identity,
-                    sizeof(sysex_identity)) == 0);
+        //while (usbd_ep_write_packet(usbd_dev, 0x81, sysex_identity,
+        //            sizeof(sysex_identity)) == 0);
     }
 }
 
