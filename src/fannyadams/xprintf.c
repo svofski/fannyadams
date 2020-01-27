@@ -121,9 +121,9 @@ static void printchar(char **str, int c)
         #else
         xputchar(c);
         cdc_putchar(c);
-        if (c == '\n') {
-            cdc_putchar('\r');
-        }
+        //if (c == '\n') {
+        //    cdc_putchar('\r');
+        //}
         #endif
     }
 }

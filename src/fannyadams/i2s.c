@@ -17,6 +17,8 @@ static dma_callback callback;
 
 uint32_t I2S_DMA_TICK;
 
+volatile uint32_t i2s_enabled;
+
 static void dma_setup(void) {
     rcc_periph_clock_enable(RCC_DMA1);
 
@@ -147,9 +149,11 @@ void I2S_Setup(void) {
 
 void I2S_Start() {
     SPI_I2SCFGR(SPI2) |= SPI_I2SCFGR_I2SE;      // Enable I2S2   
+    i2s_enabled = 1;
 }
 
 void I2S_Pause() {
+    i2s_enabled = 0;
     SPI_I2SCFGR(SPI2) &= ~SPI_I2SCFGR_I2SE;      // Enable I2S2       
     dma_setup();
 }

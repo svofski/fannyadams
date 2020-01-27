@@ -50,6 +50,8 @@ int main(void)
 
     while (1) {
         USBCMP_Poll();
+        audio_data_process();
+
         if (xavail()) {
             int c = xgetchar();
             xprintf("c=%02x ", c);

@@ -17,10 +17,9 @@
 #include "xprintf.h"
 #include "usrat.h"
 #include "i2s.h"
+#include "audiobuf.h"
 
-#define USB_EP0                         0x00
-#define STFU(x) ((void)(x))
-#define MIN(x,y) ((x)<(y)?(x):(y))
+#include "util.h"
 
 #include "usbcmp_descriptors.h"
 #include "usbcmp_cdc.h"
@@ -29,13 +28,6 @@
 
 usbd_device *device = NULL;
 
-// ample sink buffer
-static uint8_t audio_sink_buffer[192 * 8];
-
-static uint16_t mic_sample_ofs;
-static uint8_t mic_sample[480];
-
-static uint8_t audio_source_buffer[AUDIO_SOURCE_PACKET_SIZE];
 
 static volatile uint32_t npackets_fb;
 static volatile uint32_t flag;
@@ -43,9 +35,6 @@ static volatile uint32_t pid;
 static volatile uint32_t flush_count;
 
 static volatile uint32_t npackets_rx;
-static volatile uint32_t dma_buffer_ready;
-static volatile uint32_t i2s_paused;
-static volatile uint32_t rxhead, rxtail, rxtop = sizeof(audio_sink_buffer);
 static volatile uint16_t fb_timer_last;
 
 static volatile uint32_t feedback_value = 48 << 14;
@@ -56,8 +45,6 @@ static volatile uint32_t sink_buffer_fullness;
 /* Buffer to be used for control requests. Needs to be large to fit all those descriptors. */
 static uint8_t usbd_control_buffer[512]; // vcp + audio (no mic) + midi = 362
 
-extern AudioParams_T AudioParams;
-
 static int common_control_request(usbd_device *usbd_dev,
     struct usb_setup_data *req, uint8_t **buf, uint16_t *len,
     void (**complete)(usbd_device *usbd_dev, struct usb_setup_data *req))
@@ -66,7 +53,7 @@ static int common_control_request(usbd_device *usbd_dev,
     (void)buf;
     (void)usbd_dev;
 
-    //xprintf("control_request: %x Value=%x Index=%x \n\r", req->bRequest, req->wValue, req->wIndex);
+    //xprintf("control_request: %x Value=%x Index=%x \n", req->bRequest, req->wValue, req->wIndex);
 
     switch (req->bRequest) {
         case USB_CDC_REQ_SET_CONTROL_LINE_STATE:
@@ -182,115 +169,37 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
     if (altsetting_sink) {
         npackets_rx++;
 
-        int avail = sizeof(audio_sink_buffer) - rxhead;
         int read = 0;
         for(;;) {
-            int len = usbd_ep_read_packet(usbd_dev, 
-                AUDIO_SINK_EP, audio_sink_buffer + rxhead, avail);
+            int vacant = asink_vacant();
+            int len = usbd_ep_read_packet(usbd_dev, AUDIO_SINK_EP, 
+                    asink_head(), vacant);
             if (len == 0) {
                 break;
             }
             read += len;
-            rxhead += len;
-            if (rxhead == sizeof(audio_sink_buffer)) {
-                rxhead = 0;
-            }
+            asink_advance_head(len);
         }
 
-        sink_buffer_fullness = (rxhead >= rxtail) ? (rxhead - rxtail) : (rxhead + rxtop - rxtail);
+        sink_buffer_fullness = asink_fullness();
         
         // Initiate feedback
         if (((npackets_rx == 64) && (OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK) == pid) ||
             ((npackets_rx == 65) && (OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK) == pid)) {
-            xputchar('*');
+            //xputchar('*');
             send_explicit_fb(usbd_dev, sink_buffer_fullness);
             flag = 1;
         }
 
-        xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
+        //xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
         if (npackets_rx % 20 == 0) {
-            xprintf("fb=%d.%03d |%d| ->%d f%d\r\n", 
+            xprintf("fb=%d.%03d |%d| ->%d f%d\n", 
                     feedback_value >> 14, ((feedback_value>>4) & 0x3ff)*1000/1024, 
                     sink_buffer_fullness, npackets_fb, flush_count);
         }
     }
 }
 
-static void audio_data_process(void) {
-    size_t avail = rxhead >= rxtail ? (rxhead - rxtail) : (rxhead + rxtop - rxtail);
-    if (i2s_paused && (avail < AUDIO_SINK_PACKET_SIZE * 2)) {
-        return;
-    }
-
-    if (dma_buffer_ready || i2s_paused) {
-        int32_t* i2s_buf = I2S_GetBuffer();
-        if (dma_buffer_ready) --dma_buffer_ready;
-        uint32_t i2s_buffer_ofs = 0;
-
-
-        if (avail < 192) {
-            xprintf("-%d %d %d %d;\r\n", avail, rxhead, rxtail, rxtop);
-        } if (avail > sizeof(audio_sink_buffer) - 192) {
-            xprintf("+%d %d %d %d;\r\n", avail, rxhead, rxtail, rxtop);
-            rxtail += 192;
-            if (rxtail >= rxtop) {
-                rxtail -= rxtop;
-            }
-        } else {
-        }
-
-        if (AudioParams.Mute) {
-            for (size_t i = 0; i < MIN(192,avail)/2; ++i) {
-                uint32_t samp16 = 0;
-                rxtail += 2;
-                if (rxtail >= rxtop) {
-                    rxtail = 0;
-                }
-
-                i2s_buf[i2s_buffer_ofs + ((i&1) ? -1 : 1)] = samp16 << 16; // swap left & right
-
-                i2s_buffer_ofs++;
-
-                if (i2s_buffer_ofs >= AUDIO_BUFFER_SIZE) {
-                    i2s_buffer_ofs = 0;
-                }
-            }
-        }
-        else {
-            for (size_t i = 0; i < MIN(192,avail)/2; i++) {
-                uint32_t samp16 = ((uint16_t*)audio_sink_buffer)[rxtail/2];
-
-                /* volume adjust */
-                int16_t sampsign = samp16;
-                sampsign /= 2;
-                samp16 = sampsign;
-
-                rxtail += 2;
-                if (rxtail >= rxtop) {
-                    rxtail = 0;
-                }
-
-                i2s_buf[i2s_buffer_ofs + ((i&1) ? -1 : 1)] = samp16 << 16; // swap left & right
-
-                i2s_buffer_ofs++;
-
-                if (i2s_buffer_ofs >= AUDIO_BUFFER_SIZE) {
-                    i2s_buffer_ofs = 0;
-                }
-            }
-        }
-
-        if (i2s_paused) {
-            if (--i2s_paused == 0) {
-                I2S_Start();
-            }
-        }
-    }   
-}
-
-static void dma_cb(void) {
-    dma_buffer_ready += 1;
-}
 
 #if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
 static void audio_data_tx_cb(usbd_device *usbd_dev, uint8_t ep)
@@ -335,7 +244,7 @@ static void audio_data_tx_cb(usbd_device *usbd_dev, uint8_t ep)
 
 static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t value) {
     STFU(usbd_dev);
-    xprintf("set_altsetting_cb: iface=%d value=%d\r\n", index, value);
+    xprintf("set_altsetting_cb: iface=%d value=%d\n", index, value);
     if (index == AUDIO_SOURCE_IFACE) {
         if (value == 1) {
 #if defined(WITH_MICROPHONE) || defined(FEEDBACK_IMPLICIT)
@@ -347,18 +256,14 @@ static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t va
         if (value == 1) {
             npackets_rx = 0;
             npackets_fb = 0;
-            rxtop = sizeof(audio_sink_buffer);
-            rxhead = rxtail = 0;
-            dma_buffer_ready = 0;
-            i2s_paused = 1;
+            asink_init();
             pid = OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK;
-            I2S_SetCallback(dma_cb);
+            I2S_SetCallback(asink_dma_cb);
             flush_synch_ep();
         } else {
             flush_synch_ep();
             I2S_SetCallback(NULL);
             I2S_Pause();
-            i2s_paused = 0;
         }
     }
 }
@@ -367,7 +272,7 @@ static void set_config_cb(usbd_device *usbd_dev, uint16_t wValue)
 {
     (void)wValue;
 
-    xprintf("set_config wValue=%d\n\r", wValue);
+    xprintf("set_config wValue=%d\n", wValue);
 
     cdc_set_config(usbd_dev, wValue);
 
@@ -388,24 +293,23 @@ static void set_config_cb(usbd_device *usbd_dev, uint16_t wValue)
     midi_set_config(usbd_dev, wValue);
 }
 
-static void fill_buffer(void) {
-    mic_sample_ofs = 0;
-    for (uint32_t i = 0; i < sizeof(mic_sample); i += 2) {
-#ifdef WITH_MICROPHONE
-        ((uint16_t*)mic_sample)[i/2] = 128*(i - sizeof(mic_sample)/2);
-#else
-        ((uint16_t*)mic_sample)[i/2] = 0;
-#endif
-    }
-    for (uint32_t i = 0; i < sizeof(audio_source_buffer); i++) {
-        audio_source_buffer[i] = 0;
-    }
-    mic_sample_ofs = 0;
-}
+//static void fill_buffer(void) {
+//    mic_sample_ofs = 0;
+//    for (uint32_t i = 0; i < sizeof(mic_sample); i += 2) {
+//#ifdef WITH_MICROPHONE
+//        ((uint16_t*)mic_sample)[i/2] = 128*(i - sizeof(mic_sample)/2);
+//#else
+//        ((uint16_t*)mic_sample)[i/2] = 0;
+//#endif
+//    }
+//    for (uint32_t i = 0; i < sizeof(audio_source_buffer); i++) {
+//        audio_source_buffer[i] = 0;
+//    }
+//    mic_sample_ofs = 0;
+//}
 
 void USBCMP_Poll(void) {
     usbd_poll(device);
-    audio_data_process();
 }
 
 void USBCMP_Setup(void)
@@ -431,16 +335,16 @@ void USBCMP_Setup(void)
     usbd_register_incomplete_callback(device, incomplete);
 #endif
 
-    fill_buffer();
+//    fill_buffer();
 
     xprintf("USBCMP: Audio Control: IF %d Sink: IF %d ", 
         AUDIO_CONTROL_IFACE, AUDIO_SINK_IFACE);
 #ifdef AUDIO_SOURCE_IFACE
     xprintf("Source: IF %d ", AUDIO_SOURCE_IFACE);
 #endif
-    xprintf("\r\n");
+    xprintf("\n");
 #ifdef WITH_CDCACM
-    xprintf("USBCMP: CDC Comm: IF %d (EP %02x) CDC Data: IF %d (EP IN %02x OUT %02x)\r\n", 
+    xprintf("USBCMP: CDC Comm: IF %d (EP %02x) CDC Data: IF %d (EP IN %02x OUT %02x)\n", 
         CDCACM_COMM_INTERFACE, CDC_COMM_EP,
         CDCACM_DATA_INTERFACE, CDC_BULK_IN_EP, CDC_BULK_OUT_EP);
 #endif
@@ -455,11 +359,11 @@ void USBCMP_Setup(void)
 #else
     xprintf("No microphone");
 #endif
-    xprintf("\r\n");
-    xprintf("USBCMP: buffer sizes: sink=|%d| ", sizeof(audio_sink_buffer));
+    xprintf("\n");
+    xprintf("USBCMP: buffer sizes: sink=|%d| ", asink_size());
 #if defined(FEEDBACK_IMPLICIT) || defined(WITH_MICROPHONE)
     xprintf("source=|%d|", sizeof(audio_source_buffer));
 #endif
-    xprintf("\r\n");
+    xprintf("\n");
 }
 

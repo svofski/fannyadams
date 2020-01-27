@@ -32,7 +32,7 @@ int ac_control_request(usbd_device *usbd_dev,
         // Get current terminal setting: 
         // Value = 0x200 = Control Selector; Index = 0x201 Terminal ID and Interface
         {
-            xprintf("USB_AUDIO_REQ_GET_CUR\r\n");
+            xprintf("USB_AUDIO_REQ_GET_CUR\n");
             if (iface == AUDIO_CONTROL_IFACE && terminal == AUDIO_VOLUME_CONTROL_ID) {
                 switch (cs) {
                     case 1:
@@ -46,7 +46,7 @@ int ac_control_request(usbd_device *usbd_dev,
                         xprintf("GET VOLUME: %x\n", AudioParams.Volume);
                         break;
                     default:
-                        xprintf("UNKNOWN CS=%d\r\n", cs);
+                        xprintf("UNKNOWN CS=%d\n", cs);
                         *len = 0;
                 }
             }
@@ -55,8 +55,8 @@ int ac_control_request(usbd_device *usbd_dev,
     case USB_AUDIO_REQ_SET_CUR:
         {
             // proper handling would receive data from EP0
-            xprintf("USB_AUDIO_REQ_SET_CUR\r\n");
-            xprintf(" data=%x %x\r\n", (*buf)[0], (*buf)[1]);
+            xprintf("USB_AUDIO_REQ_SET_CUR\n");
+            xprintf(" data=%x %x\n", (*buf)[0], (*buf)[1]);
             if (iface == AUDIO_CONTROL_IFACE && terminal == AUDIO_VOLUME_CONTROL_ID) {
                 switch (cs) {
                     case 1:
@@ -70,7 +70,7 @@ int ac_control_request(usbd_device *usbd_dev,
                         xprintf("SET VOLUME: %x\n", AudioParams.Volume);
                         break;
                     default:
-                        xprintf("UNKNOWN CS=%d\r\n", cs);
+                        xprintf("UNKNOWN CS=%d\n", cs);
                 }
             }
 
@@ -78,7 +78,7 @@ int ac_control_request(usbd_device *usbd_dev,
         }
     case USB_AUDIO_REQ_GET_MIN:
         {
-            xprintf("USB_AUDIO_REQ_GET_MIN\r\n");
+            xprintf("USB_AUDIO_REQ_GET_MIN\n");
             (*buf)[0] = 0;
             (*buf)[1] = 0;
             *len = 2;
@@ -86,7 +86,7 @@ int ac_control_request(usbd_device *usbd_dev,
         return USBD_REQ_HANDLED; 
     case USB_AUDIO_REQ_GET_MAX:
         {
-            xprintf("USB_AUDIO_REQ_GET_MAX\r\n");
+            xprintf("USB_AUDIO_REQ_GET_MAX\n");
             (*buf)[0] = 0x00;
             (*buf)[1] = 0x01;
             *len = 2;
@@ -94,7 +94,7 @@ int ac_control_request(usbd_device *usbd_dev,
         return USBD_REQ_HANDLED; 
     case USB_AUDIO_REQ_GET_RES:
         {
-            xprintf("USB_AUDIO_REQ_GET_RES\r\n");
+            xprintf("USB_AUDIO_REQ_GET_RES\n");
             (*buf)[0] = 0x10;
             (*buf)[1] = 0x00;
             *len = 2;
@@ -102,8 +102,8 @@ int ac_control_request(usbd_device *usbd_dev,
         return USBD_REQ_HANDLED;
     case USB_AUDIO_REQ_SET_RES:
         {
-            xprintf("USB_AUDIO_REQ_SET_RES\r\n");
-            xprintf(" data=%x %x\r\n", (*buf)[0], (*buf)[1]);
+            xprintf("USB_AUDIO_REQ_SET_RES\n");
+            xprintf(" data=%x %x\n", (*buf)[0], (*buf)[1]);
             return USBD_REQ_HANDLED;
         }
     }

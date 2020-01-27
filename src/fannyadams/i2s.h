@@ -9,6 +9,8 @@
 
 typedef void (*dma_callback)(void);
 
+extern volatile uint32_t i2s_enabled;
+
 void I2S_Setup(void);
 void I2S_Start(void);
 void I2S_Pause(void);
