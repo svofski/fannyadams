@@ -9,3 +9,4 @@ define hook-quit
     set confirm off
 end
 set print elements 1024
+load

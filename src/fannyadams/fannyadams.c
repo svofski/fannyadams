@@ -11,8 +11,17 @@
 #include "event.h"
 #include "gpio.h"
 #include "i2s.h"
-
+#include "synth.h"
+#include "audiobuf.h"
 #include "usbcmp.h"
+
+static
+void synth_dma_callback(void);
+
+static
+void process_frame(void);
+
+static volatile uint32_t dma_buffer_ready;
 
 volatile uint32_t lr = 0x80007fff;
 static void test(void) {
@@ -20,7 +29,19 @@ static void test(void) {
     uint16_t right = lr & 0177777;
     int32_t il = (int32_t) ((uint32_t)left << 16);
     int32_t ir = (int32_t) ((uint32_t)right << 16);
-    xprintf("il=%d(%x) ir=%d(%x)\r\n", il, il, ir, ir);
+    xprintf("il=%d(%x) ir=%d(%x)\n", il, il, ir, ir);
+}
+
+void synth_dma_callback()
+{
+    ++dma_buffer_ready;
+}
+
+void process_frame()
+{
+    // synth starts by zeroing the buffer
+    synth_frame(I2S_GetBuffer());
+    audio_data_process();
 }
 
 int main(void)
@@ -28,7 +49,7 @@ int main(void)
     Clock_Setup();
     Debug_UART_Setup();
 
-    xprintf("FANNY ADAMS BUGGERALL\n\r");
+    xprintf("FANNY ADAMS BUGGERALL\n");
 
     test();
 
@@ -39,8 +60,8 @@ int main(void)
     Power_Setup();
     GPIO_Setup();
 
-    I2S_Setup();
     I2S_InitBuffer();
+    I2S_Setup();
 
     USBCMP_Setup();
 
@@ -48,9 +69,18 @@ int main(void)
     Clock_Debounce(DEBOUNCE_POWER, 150);
     Clock_Debounce(DEBOUNCE_DCDC, 300);
 
+    synth_init();
+
+    I2S_SetCallback(synth_dma_callback);
+    synth_dma_callback();
+    I2S_Start();
+
     while (1) {
         USBCMP_Poll();
-        audio_data_process();
+        if (dma_buffer_ready) {
+            --dma_buffer_ready;
+            process_frame();
+        }
 
         if (xavail()) {
             int c = xgetchar();
@@ -87,7 +117,7 @@ int main(void)
                                 Clock_Debounce(DEBOUNCE_I2S, 250);
                             } else {
                                 xprintf("Jacks unplugged, I2S Shutdown, Power off\r\n");
-                                I2S_Shutdown();
+                                //I2S_Shutdown();
                                 Power_Stop();
                             }
                             break;
@@ -102,7 +132,7 @@ int main(void)
                             break;
                         case DEBOUNCE_I2S:
                             xprintf("I2S Start\r\n");
-                            I2S_Setup();
+                            //I2S_Setup();
                             //I2S_Start();
                             break;
                     }

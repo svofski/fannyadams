@@ -1,6 +1,7 @@
 #pragma once
 
 #include <inttypes.h>
+#include <stdlib.h>
 
 void asink_init(void);
 

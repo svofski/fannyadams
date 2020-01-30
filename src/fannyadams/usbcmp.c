@@ -193,9 +193,9 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 
         //xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
         if (npackets_rx % 20 == 0) {
-            xprintf("fb=%d.%03d |%d| ->%d f%d\n", 
+            xprintf("fb=%d.%03d |%d| ->%d f%d read=%d\n", 
                     feedback_value >> 14, ((feedback_value>>4) & 0x3ff)*1000/1024, 
-                    sink_buffer_fullness, npackets_fb, flush_count);
+                    sink_buffer_fullness, npackets_fb, flush_count, read);
         }
     }
 }
@@ -258,12 +258,9 @@ static void set_altsetting_cb(usbd_device *usbd_dev, uint16_t index, uint16_t va
             npackets_fb = 0;
             asink_init();
             pid = OTG_FS_DSTS & DSTS_FNSOF_ODD_MASK;
-            I2S_SetCallback(asink_dma_cb);
             flush_synch_ep();
         } else {
             flush_synch_ep();
-            I2S_SetCallback(NULL);
-            I2S_Pause();
         }
     }
 }
