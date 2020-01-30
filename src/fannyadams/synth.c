@@ -4,12 +4,11 @@
 #include "util.h"
 #include "synth.h"
 #include "midi.h"
-
+#include "xprintf.h"
 #include "sintab.h"
 const size_t sintab_n = sizeof sintab / sizeof sintab[0];
 
-#define OSC_N 1
-#define FIX 24
+#define OSC_N 8
 
 #define framesize 48
 
@@ -33,6 +32,7 @@ void osc_setfreq(osc_t * g, float hz)
     // one step is 256/48000
     float step = hz * sintab_n / FS;
     g->phase_inc = (uint32_t) (step * (1 << FIX));
+    g->phase = 0;
 
     xprintf("osc_setfreq: hz=%d inc=%d\n", (int)hz, g->phase_inc);
 }
@@ -84,16 +84,22 @@ void synth_frame(int32_t * buf)
 void note_on(uint8_t chan, uint8_t note, uint8_t velocity)
 {
     STFU(velocity);
-    if (chan < OSC_N) {
-        osc_setfreq(&osc[chan], note * 10);
+    //if (chan < OSC_N) {
+    //    osc_setfreq(&osc[chan], note * 10);
+    //}
+    for (int i = 0; i < OSC_N; ++i) {
+        osc_setfreq(&osc[i], note*10 + i);
     }
 }
 
 void note_off(uint8_t chan, uint8_t note, uint8_t velocity)
 {
     STFU(velocity); STFU(note);
-    if (chan < OSC_N) {
-        osc_setfreq(&osc[chan], 0);
+    //if (chan < OSC_N) {
+    //    osc_setfreq(&osc[chan], 0);
+    //}
+    for (int i = 0; i < OSC_N; ++i) {
+        osc_setfreq(&osc[i], 0);
     }
 }
 

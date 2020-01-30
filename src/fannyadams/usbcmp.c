@@ -192,11 +192,11 @@ static void audio_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
         }
 
         //xputchar((read == 196) ? '+' : (read == 188 ? '-' : '.'));
-        if (npackets_rx % 20 == 0) {
-            xprintf("fb=%d.%03d |%d| ->%d f%d read=%d\n", 
-                    feedback_value >> 14, ((feedback_value>>4) & 0x3ff)*1000/1024, 
-                    sink_buffer_fullness, npackets_fb, flush_count, read);
-        }
+        //if (npackets_rx % 20 == 0) {
+        //    xprintf("fb=%d.%03d |%d| ->%d f%d read=%d\n", 
+        //            feedback_value >> 14, ((feedback_value>>4) & 0x3ff)*1000/1024, 
+        //            sink_buffer_fullness, npackets_fb, flush_count, read);
+        //}
     }
 }
 
