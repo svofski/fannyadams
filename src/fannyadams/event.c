@@ -46,21 +46,27 @@ Event* Event_Peek(void) {
 }
 
 #ifdef TEST
-int main() {
-    Event_Post((Event){OUTPUT_PLUG, 12});
+uint32_t timestamp;
+uint32_t Clock_Get()
+{
+    return timestamp++;
+}
+
+int event_test() {
+    Event_Post((Event){EVENT_OUTPUT_PLUG, 12});
     printf("Posted event, qlen=%d\n", Event_QueueLength());
     Event* ev = Event_Get();
-    printf("Got event: %d,%d qlen=%d\n", ev->EventId, ev->data, Event_QueueLength());
+    printf("Got event: %d,%d qlen=%d\n", ev->EventId, ev->Data, Event_QueueLength());
 
     for(int i = 0; i < QUEUE_SIZE + 4; i++) {
-        if (Event_Post((Event){OUTPUT_PLUG, i}) != EVENT_OK) {
+        if (Event_Post((Event){EVENT_OUTPUT_PLUG, i}) != EVENT_OK) {
             printf("Queue overflow, len=%d\n", Event_QueueLength());
         }
     }
     printf("Purging queue\n");
     for (;Event_QueueLength() > 0;) {
         Event* ev = Event_Get();
-        printf("Event: %d,%d qlen=%d\n", ev->EventId, ev->data, Event_QueueLength());
+        printf("Event: %d,%d qlen=%d\n", ev->EventId, ev->Data, Event_QueueLength());
     }
     return 0;   
 }

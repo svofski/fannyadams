@@ -61,3 +61,6 @@ libopencm3-sub/
 *.x
 
 src/fannyadams.sublime-workspace
+
+*.swp
+*.o

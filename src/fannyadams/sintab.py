@@ -5,7 +5,7 @@ from math import sin,pi,log
 scale = 1024
 
 precision=32 # 32 for uint_32t
-fix_mant=21  # mantissa bits
+fix_mant=20  # mantissa bits
 fix_int=precision - fix_mant    # integral part bits
 period=(1 << fix_int)
 

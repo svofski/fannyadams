@@ -5,6 +5,7 @@
 #include "synth.h"
 #include "midi.h"
 #include "xprintf.h"
+#include "adsr.h"
 #include "sintab.h"
 const size_t sintab_n = sizeof sintab / sizeof sintab[0];
 
@@ -15,6 +16,13 @@ const size_t sintab_n = sizeof sintab / sizeof sintab[0];
 const int FS = 48000;
 
 osc_t osc[OSC_N];
+
+typedef struct voice
+{
+    uint8_t osc;
+    // adsr
+    uint32_t adsr_phase;
+} voice_t;
 
 static void note_off(uint8_t chan, uint8_t note, uint8_t velocity);
 static void note_on(uint8_t chan, uint8_t note, uint8_t velocity);
@@ -46,19 +54,19 @@ void osc_frame(osc_t * g, int32_t * buf)
     for (int i = 0; i < framesize * 2;) {
         ph = (phase >> FIX) & sintab_mask; 
         buf[i++] += sintab[ph]; buf[i++] += sintab[ph]; 
-        phase = (phase + inc);
+        phase = phase + inc;
 
         ph = (phase >> FIX) & sintab_mask; 
         buf[i++] += sintab[ph]; buf[i++] += sintab[ph]; 
-        phase = (phase + inc);
+        phase = phase + inc;
 
         ph = (phase >> FIX) & sintab_mask; 
         buf[i++] += sintab[ph]; buf[i++] += sintab[ph]; 
-        phase = (phase + inc);
+        phase = phase + inc;
 
         ph = (phase >> FIX) & sintab_mask; 
         buf[i++] += sintab[ph]; buf[i++] += sintab[ph]; 
-        phase = (phase + inc);
+        phase = phase + inc;
     }
     g->phase = phase;
 }
@@ -103,3 +111,26 @@ void note_off(uint8_t chan, uint8_t note, uint8_t velocity)
     }
 }
 
+#ifdef TEST
+int osc_test()
+{
+    osc_t osc;
+    osc_init(&osc);
+    osc_setfreq(&osc, 1000);
+    int32_t buf[framesize * 2];
+
+    FILE * fo = fopen("test_osc_1.txt", "w");
+    fprintf(fo, "#!/usr/bin/env gnuplot\n");
+    fprintf(fo, "# test_osc_1 (n left right)\n");
+    fprintf(fo, "plot '-' using 1:2 with lines\n");
+    for (int frame = 0; frame < 10; ++frame) {
+        bzero(buf, sizeof buf);
+        osc_frame(&osc, buf);
+        for (int i = 0; i < framesize; ++i) {
+            fprintf(fo, "%d %d %d\n", frame * framesize + i, buf[i*2], buf[i*2+1]);
+        }
+    }
+    fprintf(fo, "e\npause -1\n");
+    fclose(fo);
+}
+#endif

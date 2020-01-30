@@ -33,3 +33,5 @@ LDSCRIPT = ../stm32f4-discovery.ld
 OPENCM3_DIR = ../../libopencm3
 include ../Makefile.include
 
+sintab.h:	sintab.py
+	./sintab.py >sintab.h
