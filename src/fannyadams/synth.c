@@ -20,8 +20,7 @@ osc_t osc[OSC_N];
 typedef struct voice
 {
     uint8_t osc;
-    // adsr
-    uint32_t adsr_phase;
+    adsr_t envelope;
 } voice_t;
 
 static void note_off(uint8_t chan, uint8_t note, uint8_t velocity);
