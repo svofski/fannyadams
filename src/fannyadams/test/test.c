@@ -3,14 +3,12 @@
 
 #include "midi.h"
 
-midi_note_onoff_cb_t midi_note_on_cb;
-midi_note_onoff_cb_t midi_note_off_cb;
-
-void gnuplot_plot_headers(FILE * fo, const char * title, const char * using,
-        const char * xlabel, const char * ylabel)
+void gnuplot_plot_headers(FILE * fo, const char * title, const char * legend, 
+        const char * using, const char * xlabel, const char * ylabel)
 {
     fprintf(fo, "#!/usr/bin/env gnuplot\n");
     fprintf(fo,
+            "set title '%s' textcolor rgb 'white'\n"
             "set xlabel '%s' textcolor rgb 'white'\n"
             "set ylabel '%s' textcolor rgb 'white'\n"
             "set linetype 1 lc rgb 'orange'\n"
@@ -18,10 +16,11 @@ void gnuplot_plot_headers(FILE * fo, const char * title, const char * using,
             "set border lc 11\n"
             "set key textcolor rgb 'white'\n"
             "plot '-' using %s with lines title '%s'\n",
+            title,
             xlabel ? xlabel : "x",
             ylabel ? ylabel : "y",
             using ? using : "1:2",
-            title ? title : "Epic plot");
+            legend ? legend : "Epic plot");
 }
 
 FILE * fopen_exe(const char * name)

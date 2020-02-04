@@ -51,18 +51,22 @@ typedef union _usbmidi_event_packet
 
 midi_note_onoff_cb_t midi_note_on_cb;
 midi_note_onoff_cb_t midi_note_off_cb;
+midi_chan_cb_t       midi_all_sound_off_cb;
+midi_chan_cb_t       midi_all_notes_off_cb;
+midi_chan_cb_t       midi_reset_all_cntrls_cb;
+midi_pitchbend_cb_t midi_pitchbend_cb;
 
 static
-void midi_note_on(uint8_t chan, uint8_t note, uint8_t velocity);
+void midi_note_on(midi_chan_t chan, uint8_t note, uint8_t velocity);
 
 static
-void midi_note_off(uint8_t chan, uint8_t note, uint8_t velocity);
+void midi_note_off(midi_chan_t chan, uint8_t note, uint8_t velocity);
 
 static
-void midi_control_change(uint8_t chan, uint8_t control, uint8_t value);
+void midi_control_change(midi_chan_t chan, uint8_t control, uint8_t value);
 
 static
-void midi_pitch_bend(uint8_t chan, int16_t value);
+void midi_pitchbend(midi_chan_t chan, int16_t value);
 
 void midi_read_usbpacket(uint32_t packet32)
 {
@@ -83,7 +87,7 @@ void midi_read_usbpacket(uint32_t packet32)
         case MIDI_PITCH_BEND:
             {
                 int16_t value = ((p.midi[2] << 7) | (p.midi[1])) - 8192;
-                midi_pitch_bend(status_chan(p.midi[0]), value);
+                midi_pitchbend(status_chan(p.midi[0]), value);
             }
             break;
         default:
@@ -94,7 +98,7 @@ void midi_read_usbpacket(uint32_t packet32)
     }
 }
 
-void midi_note_on(uint8_t chan, uint8_t note, uint8_t velocity)
+void midi_note_on(midi_chan_t chan, uint8_t note, uint8_t velocity)
 {
     xprintf("NoteOn  %2d  %d %d\n", chan, note, velocity);
     if (midi_note_on_cb) {
@@ -102,7 +106,7 @@ void midi_note_on(uint8_t chan, uint8_t note, uint8_t velocity)
     }
 }
 
-void midi_note_off(uint8_t chan, uint8_t note, uint8_t velocity)
+void midi_note_off(midi_chan_t chan, uint8_t note, uint8_t velocity)
 {
     xprintf("NoteOff %2d  %d %d\n", chan, note, velocity);
     if (midi_note_off_cb) {
@@ -110,33 +114,52 @@ void midi_note_off(uint8_t chan, uint8_t note, uint8_t velocity)
     }
 }
 
-void midi_control_change(uint8_t chan, uint8_t control, uint8_t value)
+void midi_control_change(midi_chan_t chan, uint8_t control, uint8_t value)
 {
     const char * ccname = NULL;
-    int all_off = 0;
 
     switch (control) {
-        case 120:   ccname = "All Sound Off"; break;
-        case 121:   ccname = "Reset All Controllers"; break;
-        case 122:   ccname = "Local Control"; break;
-        case 123:   ccname = "All Notes Off"; break;
-        case 124:   ccname = "Omni Off"; break;
-        case 125:   ccname = "Omni On"; break;
-        case 126:   ccname = "Mono On (Poly Off)"; break;
-        case 127:   ccname = "Poly On (Mono Off)"; break;
+        case 120:   ccname = "All Sound Off"; 
+                    if (midi_all_sound_off_cb) midi_all_sound_off_cb(chan);
+                    break;
+        case 121:   ccname = "Reset All Controllers"; 
+                    if (midi_reset_all_cntrls_cb) midi_reset_all_cntrls_cb(chan);
+                    break;
+        case 122:   ccname = "Local Control"; 
+                    break;
+        case 123:   ccname = "All Notes Off"; 
+                    if (midi_all_notes_off_cb) midi_all_notes_off_cb(chan);
+                    break;
+        case 124:   ccname = "Omni Off"; 
+                    if (midi_all_notes_off_cb) midi_all_notes_off_cb(chan);
+                    break;
+        case 125:   ccname = "Omni On"; 
+                    if (midi_all_notes_off_cb) midi_all_notes_off_cb(chan);
+                    break;
+        case 126:   ccname = "Mono On (Poly Off)"; 
+                    if (midi_all_notes_off_cb) midi_all_notes_off_cb(chan);
+                    break;
+        case 127:   ccname = "Poly On (Mono Off)"; 
+                    if (midi_all_notes_off_cb) midi_all_notes_off_cb(chan);
+                    break;
     }
-    if (control >= 123 && control <= 127) all_off = 1;
 
     if (ccname) {
-        xprintf("CC[%d] %d %d: %s %s\n", chan, control, value, ccname, 
-                all_off ? "also All Notes Off" : "");
+        // this can generate an awful lot of xprintf and glitch when 
+        // playback is being stopped on all channels
+        // 
+        // int all_off = 0;
+        // if (control >= 123 && control <= 127) all_off = 1;
+        //xprintf("CC[%d] %d %d: %s %s\n", chan, control, value, ccname, 
+        //        all_off ? "also All Notes Off" : "");
     }
     else {
         xprintf("CC[%d] %d %d\n", chan, control, value);
     }
 }
 
-void midi_pitch_bend(uint8_t chan, int16_t value)
+void midi_pitchbend(midi_chan_t chan, int16_t value)
 {
-    xprintf("PitchBend %2d  %d\n", chan, value);
+    //xprintf("PitchBend %2d  %d\n", chan, value);
+    if (midi_pitchbend_cb) midi_pitchbend_cb(chan, value);
 }

@@ -58,6 +58,7 @@ void adsr_step(adsr_t * env)
 
 #ifdef TEST
 #include <stdio.h>
+#include <stdlib.h>
 #include "test/test.h"
 
 int adsr_test()
@@ -66,7 +67,8 @@ int adsr_test()
     adsr_reset(&env, 0.01, 0.01, 0.2, 0.01);
 
     FILE * fo = fopen_exe("adsr_test1.txt");
-    gnuplot_plot_headers(fo, "ADSR", "1:2", "sample", "volume");
+    gnuplot_plot_headers(fo, "adsr\\_test(): test envelope generator",
+            "ADSR", "1:2", "sample", "volume");
     for (int step = 0; step < 500; ++step) {
         if (step == 10) adsr_note_on(&env);
         if (step == 300) adsr_note_off(&env);
@@ -75,6 +77,7 @@ int adsr_test()
     }
     fprintf(fo, "e\n#pause -1\n");
     fclose(fo);
+    system("./adsr_test1.txt");
 
     return 0;
 }

@@ -3,7 +3,7 @@ make && \
 if [ -z "$MLTERM" ] ; then
     mlterm --mdi=false -g 132x50 --fg=white --bg=black --fontsize 22 --deffont "3270 Condensed" -e $0 bash
 else
-    export GNUTERM="sixelgd size 600,250 background rgb '#000' truecolor font arial 10"
+    export GNUTERM="sixelgd size 600,400 background rgb '#000' truecolor font arial 10"
     make
     ./test
     for testtxt in *.txt ; do
