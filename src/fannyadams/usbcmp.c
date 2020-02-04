@@ -28,6 +28,7 @@
 
 usbd_device *device = NULL;
 
+bool usb_configured_flag = false;
 
 static volatile uint32_t npackets_fb;
 static volatile uint32_t flag;
@@ -288,6 +289,8 @@ static void set_config_cb(usbd_device *usbd_dev, uint16_t wValue)
                 common_control_request);
 
     midi_set_config(usbd_dev, wValue);
+
+    usb_configured_flag = true;
 }
 
 //static void fill_buffer(void) {

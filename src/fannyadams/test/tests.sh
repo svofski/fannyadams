@@ -1,13 +1,17 @@
 #!/bin/bash
+make && \
 if [ -z "$MLTERM" ] ; then
-    mlterm --fg=white --bg=black -e $0 bash
+    mlterm --mdi=false -g 132x50 --fg=white --bg=black --fontsize 22 --deffont "3270 Condensed" -e $0 bash
 else
-    export GNUTERM="sixelgd size 640,480 truecolor font arial 10"
+    export GNUTERM="sixelgd size 600,250 background rgb '#000' truecolor font arial 10"
     make
     ./test
-    ./test_osc_1.txt
-    ./test_adsr_1.txt
+    for testtxt in *.txt ; do
+        ./$testtxt
+    done
+
+    # leave this shell if it was open with starting mlterm
     if [ ! -z "$1" ] ; then 
-        $1
+        exec $1
     fi
 fi

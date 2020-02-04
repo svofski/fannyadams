@@ -15,6 +15,8 @@
 #include "audiobuf.h"
 #include "usbcmp.h"
 
+extern bool usb_configured_flag;
+
 static
 void synth_dma_callback(void);
 
@@ -39,6 +41,9 @@ void synth_dma_callback()
 
 void process_frame()
 {
+    //if (!usb_configured_flag) {
+    //    return;
+    //}
     // synth starts by zeroing the buffer
     synth_frame(I2S_GetBuffer());
     audio_data_process();
@@ -75,11 +80,16 @@ int main(void)
     synth_dma_callback();
     I2S_Start();
 
+    int delay = 1000;
+
     while (1) {
         USBCMP_Poll();
         if (dma_buffer_ready) {
             --dma_buffer_ready;
-            process_frame();
+            if (delay) --delay;
+            if (delay == 0) {
+                process_frame();
+            }
         }
 
         if (xavail()) {

@@ -12,10 +12,12 @@
 #endif
 typedef struct adsr_
 {
-    enum { ADSR_A, ADSR_D, ADSR_S, ADSR_R } state;
+    enum { ADSR_0, ADSR_A, ADSR_D, ADSR_S, ADSR_R } state;
     float a, d, s, r;
     float v;
 } adsr_t;
 
 void adsr_reset(adsr_t * env, float a, float d, float s, float r);
-void adsr_step(adsr_t * env, int note_on);
+void adsr_step(adsr_t * env);
+void adsr_note_on(adsr_t * env);
+void adsr_note_off(adsr_t * env);
