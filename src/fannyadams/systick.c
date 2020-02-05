@@ -61,7 +61,5 @@ void Clock_Debounce(int bin, int millis)
             active++;
         }
     }
-    cm_disable_interrupts();
     debounce_active = active;
-    cm_enable_interrupts();
 }

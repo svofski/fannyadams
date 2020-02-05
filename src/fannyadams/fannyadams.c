@@ -72,7 +72,8 @@ int main(void)
 
     // Turn on power if any of the plugs is inserted
     Clock_Debounce(DEBOUNCE_POWER, 150);
-    Clock_Debounce(DEBOUNCE_DCDC, 300);
+    // Print opamp voltage once a second
+    Clock_Debounce(DEBOUNCE_DCDC, 1000);
 
     synth_init();
 
@@ -103,22 +104,22 @@ int main(void)
                 case 'a':   Power_SetPeriod(Power_GetPeriod() - 10); break;
                 case 's':   Power_SetPeriod(Power_GetPeriod() + 10); break;
             }
-            xprintf("ADC3: %d %d %d  Period: %d Factor: %d \n\r", 
+            xprintf("ADC3: %d %d %d  Period: %d Factor: %d \n\r",
                     ADC3_BUFFER[0], ADC3_BUFFER[1], ADC3_BUFFER[2],
                     Power_GetPeriod(), Power_GetFactor());
-            xprintf("GPIOB=%04x %d %d\n\r", 
+            xprintf("GPIOB=%04x %d %d\n\r",
                     GPIOB_IDR, (GPIOB_IDR & GPIO8) != 0, (GPIOB_IDR & GPIO9) == 0);
         }
         for (;Event_QueueLength() > 0;) {
             Event *ev = Event_Get();
             switch (ev->EventId) {
                 case EVENT_OUTPUT_PLUG:
-                    //xprintf("Output plug state: @%d %s\n", 
-                    //  ev->Timestamp, ev->Data ? "PLUGGED" : "UNPLUGGED");
+                    xprintf("Output plug state: @%d %s\n",
+                      ev->Timestamp, ev->Data ? "PLUGGED" : "UNPLUGGED");
                     //Event_Post_Delayed(100, (Event){EventId: POWER_SWITCH, Data: ev->Data});
                     Clock_Debounce(DEBOUNCE_POWER, 500);
                     break;
-                case EVENT_DEBOUNCE: 
+                case EVENT_DEBOUNCE:
                     switch (ev->Data) {
                         case DEBOUNCE_POWER:
                             if (GPIO_IsOutputPlugged()) {
@@ -126,17 +127,18 @@ int main(void)
                                 Power_Start();
                                 Clock_Debounce(DEBOUNCE_I2S, 250);
                             } else {
-                                xprintf("Jacks unplugged, I2S Shutdown, Power off\r\n");
+                                xprintf("Jacks unplugged, Power off\r\n");
                                 //I2S_Shutdown();
                                 Power_Stop();
                             }
                             break;
                         case DEBOUNCE_DCDC:
                             {
-                            //int raw = ADC3_BUFFER[0];
-                            //int scaled = raw * 78;
-                            //xprintf("DC-DC: voltage=%d.%d %d.%d\r\n", raw/1241, (raw % 1241)/124,
-                            //    scaled/12410, (scaled % 12410)/1240);
+                            int raw = ADC3_BUFFER[0];
+                            int scaled = raw * 78;
+                            xprintf("DC-DC: voltage=%d.%d %d.%d\r\n", raw/1241,
+                                    (raw % 1241)/124, scaled/12410,
+                                    (scaled % 12410)/1240);
                             Clock_Debounce(DEBOUNCE_DCDC, 1000);
                             }
                             break;
