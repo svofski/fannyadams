@@ -7,15 +7,11 @@
 #include "xprintf.h"
 #include "adsr.h"
 #include "notefreq.h"
-#include "sintab.h"
-const size_t sintab_n = sizeof sintab / sizeof sintab[0];
 
 #define OSC_N 16
 #define VOICE_N (OSC_N)
 
-#define framesize 48
 
-const int FS = 48000;
 
 osc_t osc[OSC_N];
 
@@ -40,56 +36,6 @@ static void note_on(midi_chan_t chan, midi_note_t note, uint8_t velocity);
 static void stfu(midi_chan_t chan);
 static void pitchbend(midi_chan_t chan, int16_t bend);
 
-void osc_init(osc_t * g)
-{
-    bzero(g, sizeof *g);
-}
-
-void osc_setfreq(osc_t * g, float hz)
-{
-    // 1hz -> 1 period in FS samples
-    // phase = 8.24
-    // e.g. 1 Hz, must advance by sintab_n (256) in FS (48000) counts
-    // one step is 256/48000
-    float step = hz * sintab_n / FS;
-    g->phase_inc = (uint32_t) (step * (1 << FIX));
-}
-
-void osc_frame(osc_t * g, int32_t * buf, float volume, adsr_t * env)
-{
-    // not nice but seems to save us from some critical timing problems at start
-    if (volume == 0) return;
-
-    uint32_t phase = g->phase;
-    uint32_t inc = g->phase_inc;
-    uint32_t ph;
-    float v;
-
-    // samples per frame * 2 channels
-    for (int i = 0; i < framesize * 2;) {
-        adsr_step(env); v = volume * env->v;
-        ph = (phase >> FIX) & sintab_mask; 
-        buf[i++] += v * sintab[ph]; buf[i++] += v * sintab[ph]; 
-        phase = phase + inc;
-
-        adsr_step(env); v = volume * env->v;
-        ph = (phase >> FIX) & sintab_mask; 
-        buf[i++] += v * sintab[ph]; buf[i++] += v * sintab[ph]; 
-        phase = phase + inc;
-
-        adsr_step(env); v = volume * env->v;
-        ph = (phase >> FIX) & sintab_mask; 
-        buf[i++] += v * sintab[ph]; buf[i++] += v * sintab[ph]; 
-        phase = phase + inc;
-
-        adsr_step(env); v = volume * env->v;
-        ph = (phase >> FIX) & sintab_mask; 
-        buf[i++] += v * sintab[ph]; buf[i++] += v * sintab[ph]; 
-        phase = phase + inc;
-    }
-    g->phase = phase;
-}
-
 void synth_init()
 {
     midi_note_on_cb = note_on;
@@ -110,7 +56,7 @@ void synth_init()
 // called every 1ms frame, fills 48 samples
 void synth_frame(int32_t * buf)
 {
-    bzero(buf, framesize * sizeof(int32_t) * 2);
+    osc_zero(buf);
     for (int i = 0; i < VOICE_N; ++i) {
         osc_frame(&osc[i], buf, voice[i].volume, &voice[i].envelope);
 
@@ -191,6 +137,9 @@ void note_on(midi_chan_t chan, midi_note_t note, uint8_t velocity)
     int v = voice_lru_get(note); // get least recently used voice
     adsr_note_on(&voice[v].envelope);
     osc_setfreq(&osc[v], notefreq(note));
+
+    osc[v].waveform = WF_PWM;
+
     voice[v].volume = 4096.0f/128.0f * velocity;
     voice[v].chan = chan;
 }
@@ -225,72 +174,8 @@ void pitchbend(midi_chan_t chan, int16_t bend)
 
 #ifdef TEST
 
-#include "stdlib.h"
+#include <stdlib.h>
 #include "test/test.h"
-
-int osc_test1()
-{
-    osc_t osc;
-    osc_init(&osc);
-    osc_setfreq(&osc, 1000);
-    int32_t buf[framesize * 2];
-
-    FILE * fo = fopen_exe("osc_test1.txt");
-    gnuplot_plot_headers(fo, "osc\\_test1(): Simple sin oscillator test",
-            "sin 1kHz", "1:2", "sample", "volume");
-    
-    adsr_t env;
-    adsr_reset(&env, 1, 0, 1, 1);
-    adsr_note_on(&env);
-
-    for (int frame = 0; frame < 10; ++frame) {
-        bzero(buf, sizeof buf);
-        osc_frame(&osc, buf, 4096, &env);
-        for (int i = 0; i < framesize; ++i) {
-            fprintf(fo, "%d %d %d\n", frame * framesize + i, buf[i*2], buf[i*2+1]);
-        }
-    }
-    fprintf(fo, "e\n#pause -1\n");
-    fclose(fo);
-    system("./osc_test1.txt");
-
-    return 0;
-}
-
-int osc_test2()
-{
-    osc_t osc;
-    osc_init(&osc);
-    int32_t buf[framesize * 2];
-
-    adsr_t env;
-    adsr_reset(&env, 1, 0, 1, 1);
-    adsr_note_on(&env);
-
-    FILE * fo = fopen_exe("osc_test2.txt");
-    gnuplot_plot_headers(fo, "osc\\_test2(): sin sweep 100-1000 Hz",
-            "sin sweep", "1:2", "sample", "volume");
-    for (int frame = 0; frame < 20; ++frame) {
-        bzero(buf, sizeof buf);
-        osc_setfreq(&osc, 100 + frame * 45);
-        osc_frame(&osc, buf, 4096, &env);
-        for (int i = 0; i < framesize; ++i) {
-            fprintf(fo, "%d %d %d\n", frame * framesize + i, buf[i*2], buf[i*2+1]);
-        }
-    }
-    fprintf(fo, "e\n#pause -1\n");
-    fclose(fo);
-    system("./osc_test2.txt");
-
-    return 0;
-}
-
-int osc_test()
-{
-    return 
-            osc_test1() | 
-            osc_test2();
-}
 
 int print_voices(const char * title)
 {
@@ -324,7 +209,7 @@ int voice_test()
 
 int keypress_test()
 {
-    int32_t buf[framesize * 2];
+    int32_t buf[FRAMESIZE * 2];
     synth_init();
 
     printf("Press A1 (880 Hz) Midi note 80\n");
@@ -340,8 +225,8 @@ int keypress_test()
         bzero(buf, sizeof buf);
         synth_frame(buf);
 
-        for (int i = 0; i < framesize; ++i) {
-            fprintf(fo, "%d %d %d\n", frame * framesize + i, buf[i*2], buf[i*2+1]);
+        for (int i = 0; i < FRAMESIZE; ++i) {
+            fprintf(fo, "%d %d %d\n", frame * FRAMESIZE + i, buf[i*2], buf[i*2+1]);
         }
 
         if (frame == frame_on) {

@@ -1,8 +1,9 @@
 CFLAGS += -DTEST=1 -I..
+LDLIBS += -lm
 
 all:	test
 
-test:	test.o event.o adsr.o synth.o notefreq.o midi.o
+test:	test.o event.o adsr.o synth.o notefreq.o midi.o osc.o
 
 test.o:	test.c
 
@@ -19,4 +20,7 @@ notefreq.o:	../notefreq.c
 	$(CC) -c $(CFLAGS) $< -o $@
 
 midi.o:	../midi.c
+	$(CC) -c $(CFLAGS) $< -o $@
+
+osc.o:	../osc.c
 	$(CC) -c $(CFLAGS) $< -o $@
