@@ -54,7 +54,8 @@ midi_note_onoff_cb_t midi_note_off_cb;
 midi_chan_cb_t       midi_all_sound_off_cb;
 midi_chan_cb_t       midi_all_notes_off_cb;
 midi_chan_cb_t       midi_reset_all_cntrls_cb;
-midi_pitchbend_cb_t midi_pitchbend_cb;
+midi_pitchbend_cb_t  midi_pitchbend_cb;
+midi_progchange_cb_t midi_program_change_cb;
 
 static
 void midi_note_on(midi_chan_t chan, uint8_t note, uint8_t velocity);
@@ -67,6 +68,9 @@ void midi_control_change(midi_chan_t chan, uint8_t control, uint8_t value);
 
 static
 void midi_pitchbend(midi_chan_t chan, int16_t value);
+
+static
+void midi_program_change(midi_chan_t chan, midi_prog_t program);
 
 void midi_read_usbpacket(uint32_t packet32)
 {
@@ -86,8 +90,13 @@ void midi_read_usbpacket(uint32_t packet32)
             break;
         case MIDI_PITCH_BEND:
             {
-                int16_t value = ((p.midi[2] << 7) | (p.midi[1])) - 8192;
+                int16_t value = ((p.midi[2] << 7) | (p.midi[1]));// - 8192;
                 midi_pitchbend(status_chan(p.midi[0]), value);
+            }
+            break;
+        case MIDI_PROGRAM_CHANGE: /* 0x0c */
+            {
+                midi_program_change(status_chan(p.midi[0]), p.midi[1]);
             }
             break;
         default:
@@ -162,4 +171,11 @@ void midi_pitchbend(midi_chan_t chan, int16_t value)
 {
     //xprintf("PitchBend %2d  %d\n", chan, value);
     if (midi_pitchbend_cb) midi_pitchbend_cb(chan, value);
+}
+
+// program is 0..127
+void midi_program_change(midi_chan_t chan, midi_prog_t program)
+{
+    xprintf("midi_program_change: %d %d\n", chan, program);
+    if (midi_program_change_cb) midi_program_change_cb(chan, program);
 }

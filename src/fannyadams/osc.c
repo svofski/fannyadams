@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 #include "adsr.h"
+#include "osc.h"
 #include "synth.h"
 
 #include "sintab.h"

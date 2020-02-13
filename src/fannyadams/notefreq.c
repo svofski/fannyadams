@@ -1,5 +1,15 @@
+#include <math.h>
 #include "notefreq.h"
 
+/** Thanks to this wonderful answer:
+ * https://dsp.stackexchange.com/a/1650
+ */
+float notefreq(midi_note_t note, int16_t pitchbend)
+{
+    return 440.0f * powf(2.0f, (note - 69)/12.0f + (pitchbend-8192)/(4096.f*12.f));
+}
+
+#if 0
 // from http://tonalsoft.com/pub/news/pitch-bend.aspx
 
 static
@@ -156,4 +166,5 @@ float notefreq(midi_note_t note)
     if (note < 0) return 0;
     return _12edo[note];
 }
+#endif
 

@@ -2,4 +2,4 @@
 
 #include "midi.h"
 
-float notefreq(midi_note_t note);
+float notefreq(midi_note_t note, int16_t pitchbend);

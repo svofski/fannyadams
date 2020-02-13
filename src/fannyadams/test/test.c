@@ -70,9 +70,9 @@ int main()
     
     //res |= event_test();
     //res |= adsr_test();
-    res |= osc_test();
+    //res |= osc_test();
     //res |= voice_test();
-    //res |= keypress_test();
+    res |= keypress_test();
     
     return res;
 }
