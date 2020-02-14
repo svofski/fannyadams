@@ -4,7 +4,7 @@
 extern "C" {
 #endif
 
-#ifdef TEST
+#if defined(TEST) || defined(EMULATOR)
 #include <stdio.h>
 #define xprintf printf
 #define xsprintf sprintf

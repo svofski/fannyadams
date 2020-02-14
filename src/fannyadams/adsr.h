@@ -10,9 +10,12 @@
    S: value
    R: rate
 #endif
+
+typedef enum { ADSR_0, ADSR_A, ADSR_D, ADSR_S, ADSR_R } state_t;
+
 typedef struct adsr_
 {
-    enum { ADSR_0, ADSR_A, ADSR_D, ADSR_S, ADSR_R } state;
+    state_t state;
     float a, d, s, r;
     float v;
 } adsr_t;
